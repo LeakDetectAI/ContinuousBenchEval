@@ -1,0 +1,9 @@
+# Kauldron / JAX on TPU
+# Install: pip install -r requirements/jax-tpu.txt
+jax[tpu]>=0.4.20
+kauldron>=1.3
+grain
+optax
+tensorflow-cpu
+pyyaml>=6.0
+dacite>=1.8

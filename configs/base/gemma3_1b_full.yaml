@@ -1,0 +1,31 @@
+# Gemma3 1B full fine-tuning (no LoRA)
+# Framework is chosen at launch time via --framework hf|kd
+
+model:
+  name: gemma3-1b-pt
+
+optimizer:
+  name: adamw
+  lr: 5e-5
+  weight_decay: 0.01
+  warmup_fraction: 0.02
+  schedule: cosine
+  end_lr_fraction: 0.1
+  b1: 0.9
+  b2: 0.99
+
+training:
+  effective_batch_size: 16
+  per_device_batch_size: 4
+  sharding: fsdp
+  bf16: true
+  seed: 42
+  max_checkpoints: 10
+
+data:
+  sequence_length: 1024
+  task: next_token
+  num_workers: 4
+
+logging:
+  log_every_n_steps: 10

@@ -1,0 +1,12 @@
+# HuggingFace / TRL on GPU
+# Install: pip install -r requirements/torch-gpu.txt
+torch>=2.1
+transformers>=4.40
+trl>=0.8
+peft>=0.10
+datasets
+accelerate
+tensorboard
+huggingface_hub
+pyyaml>=6.0
+dacite>=1.8

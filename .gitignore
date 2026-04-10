@@ -1,0 +1,47 @@
+# --- Datasets (downloaded from HF, not committed) ---
+data/**
+!data/README.md
+!data/load_data.py
+!data/example/
+!data/example/**
+
+# --- Training outputs ---
+outputs/
+wandb/
+runs/
+*.tfevents.*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Virtual envs ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Secrets ---
+.env
+*.key
+.huggingface/
