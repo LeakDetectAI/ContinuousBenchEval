@@ -16,17 +16,12 @@ optimizer:
   b2: 0.99
 
 training:
-  effective_batch_size: 32
-  per_device_batch_size: 8
+  effective_batch_size: 64
+  per_device_batch_size: 16
   sharding: fsdp
   bf16: true
   seed: 42
   max_checkpoints: 10
-
-data:
-  sequence_length: 1024
-  task: next_token
-  num_workers: 4
 
 logging:
   log_every_n_steps: 10

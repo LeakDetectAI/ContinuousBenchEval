@@ -14,6 +14,7 @@ import tempfile
 from typing import Any
 
 import numpy as np
+from grain import python as grain
 
 from cbe.config import DataConfig
 from cbe.data.formatters import load_jsonl
@@ -24,7 +25,7 @@ from cbe.data.formatters import load_jsonl
 # ---------------------------------------------------------------------------
 
 @dataclasses.dataclass
-class JsonBytesToDict:
+class JsonBytesToDict(grain.MapTransform):
     """Grain MapTransform: decode ArrayRecord bytes → dict."""
     key: str = "text"
 
@@ -38,7 +39,7 @@ class JsonBytesToDict:
 
 
 @dataclasses.dataclass
-class NextTokenPredictionTask:
+class NextTokenPredictionTask(grain.MapTransform):
     """Grain MapTransform: tokenize text → input/target/mask tensors."""
     sequence_length: int
     tokenizer: Any
@@ -73,7 +74,7 @@ class NextTokenPredictionTask:
 
 
 @dataclasses.dataclass
-class Seq2SeqTask:
+class Seq2SeqTask(grain.MapTransform):
     """Grain MapTransform: tokenize prompt+answer → input/target/mask."""
     sequence_length: int
     tokenizer: Any
@@ -154,6 +155,7 @@ class KauldronDataPipeline:
         jsonl_path: str,
         is_training: bool,
         transforms: list,
+        batch_size: int,
     ):
         from grain import python as grain
         from kauldron import kd
@@ -165,7 +167,7 @@ class KauldronDataPipeline:
             data_source=grain.ArrayRecordDataSource(ar_path),
             shuffle=is_training,
             num_epochs=None if is_training else 1,
-            batch_size=self.config.training.per_device_batch_size,
+            batch_size=batch_size,
             transforms=transforms,
             num_workers=self.data_config.num_workers,
             per_worker_buffer_size=4,
@@ -181,11 +183,18 @@ class KauldronDataPipeline:
             ),
         ]
         return self._make_datasource(
-            self.data_config.train_path, is_training=True, transforms=transforms
+            self.data_config.train_path,
+            is_training=True,
+            transforms=transforms,
+            batch_size=self.config.training.per_device_batch_size,
         )
 
     def make_eval_source(self, tokenizer):
-        """Create an eval DataSource for loss computation."""
+        """Create an eval DataSource for loss computation.
+
+        Uses training.eval_per_device_batch_size (typically larger than the
+        training batch, since no grad storage is needed during eval).
+        """
         transforms = [
             JsonBytesToDict(key="text"),
             NextTokenPredictionTask(
@@ -194,5 +203,8 @@ class KauldronDataPipeline:
             ),
         ]
         return self._make_datasource(
-            self.data_config.val_path, is_training=False, transforms=transforms
+            self.data_config.val_path,
+            is_training=False,
+            transforms=transforms,
+            batch_size=self.config.training.eval_per_device_batch_size,
         )

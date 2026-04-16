@@ -58,21 +58,22 @@ class HFTrainer:
         tc = self.config.training
         grad_accum = self.config.gradient_accumulation_steps
 
-        # FSDP config for multi-GPU
-        fsdp_config = None
-        fsdp = []
-        if tc.sharding == "fsdp":
-            fsdp = ["full_shard", "auto_wrap"]
-            fsdp_config = {
-                "fsdp_transformer_layer_cls_to_wrap": "auto",
-            }
+        # Multi-GPU uses DDP (via torchrun/accelerate). FSDP + PEFT has
+        # auto-wrap compatibility issues, so we default to DDP which works
+        # reliably with LoRA-wrapped models. Single-GPU runs (plain `python`)
+        # skip distributed entirely.
+        import torch.distributed as dist
+        is_distributed = dist.is_initialized() or "WORLD_SIZE" in os.environ
+        if not is_distributed and tc.sharding in ("fsdp", "ddp"):
+            print("[CBE] Not in distributed mode — running single-GPU. "
+                  "Use torchrun for multi-GPU.")
 
         # SFT training config
         training_args = SFTConfig(
             output_dir=os.path.join(self.artifact_store.run_dir, "checkpoints"),
             max_steps=tc.num_train_steps,
             per_device_train_batch_size=tc.per_device_batch_size,
-            per_device_eval_batch_size=tc.per_device_batch_size,
+            per_device_eval_batch_size=tc.eval_per_device_batch_size,
             gradient_accumulation_steps=grad_accum,
             learning_rate=self.config.optimizer.lr,
             weight_decay=self.config.optimizer.weight_decay,
@@ -89,11 +90,11 @@ class HFTrainer:
             seed=tc.seed,
             bf16=tc.bf16,
             dataloader_num_workers=self.config.data.num_workers,
-            max_seq_length=self.config.data.sequence_length,
+            max_length=self.config.data.sequence_length,
             dataset_text_field="text",
             remove_unused_columns=False,
-            fsdp=fsdp if fsdp else "",
-            fsdp_config=fsdp_config,
+            # DDP is HF Trainer's default when launched via torchrun.
+            # No fsdp= config needed — just `torchrun --nproc_per_node=N`.
             report_to=[],  # We handle logging ourselves via callbacks
         )
 
@@ -103,9 +104,15 @@ class HFTrainer:
         config = self.config
 
         class CBECallback(TrainerCallback):
-            """Forwards metrics to MultiLogger and runs QA eval."""
+            """Forwards metrics to MultiLogger and runs QA eval.
+
+            All logging/saving is guarded by is_world_process_zero so that
+            DDP multi-GPU runs don't produce duplicate entries.
+            """
 
             def on_log(self, args, state, control, logs=None, **kwargs):
+                if not state.is_world_process_zero:
+                    return
                 if logs and state.global_step > 0:
                     step = state.global_step
                     logger.log_scalars(
@@ -114,6 +121,8 @@ class HFTrainer:
                     )
 
             def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+                if not state.is_world_process_zero:
+                    return
                 step = state.global_step
                 eval_metrics = {}
 
@@ -127,6 +136,10 @@ class HFTrainer:
                 eval_model = kwargs.get("model", model)
                 ec = config.eval
                 if config.data.valqa_path:
+                    details_path = (
+                        artifact_store.qa_details_path("valqa", step)
+                        if ec.save_detailed_results else None
+                    )
                     qa_metrics = run_qa_eval_hf(
                         model=eval_model,
                         tokenizer=tokenizer,
@@ -138,12 +151,19 @@ class HFTrainer:
                         temperature=ec.temperature,
                         top_k=ec.top_k,
                         top_p=ec.top_p,
+                        parser=ec.parser,
+                        num_examples=ec.num_examples,
+                        save_details_path=details_path,
                     )
                     eval_metrics["valqa_exact_match"] = qa_metrics["exact_match"]
                     eval_metrics["valqa_fuzzy_match"] = qa_metrics["fuzzy_match"]
 
                 # Run QA eval on testqa
                 if config.data.testqa_path:
+                    details_path = (
+                        artifact_store.qa_details_path("testqa", step)
+                        if ec.save_detailed_results else None
+                    )
                     qa_metrics = run_qa_eval_hf(
                         model=eval_model,
                         tokenizer=tokenizer,
@@ -155,6 +175,9 @@ class HFTrainer:
                         temperature=ec.temperature,
                         top_k=ec.top_k,
                         top_p=ec.top_p,
+                        parser=ec.parser,
+                        num_examples=ec.num_examples,
+                        save_details_path=details_path,
                     )
                     eval_metrics["testqa_exact_match"] = qa_metrics["exact_match"]
                     eval_metrics["testqa_fuzzy_match"] = qa_metrics["fuzzy_match"]
@@ -164,6 +187,8 @@ class HFTrainer:
                     artifact_store.save_metrics(eval_metrics, step=step)
 
             def on_save(self, args, state, control, **kwargs):
+                if not state.is_world_process_zero:
+                    return
                 artifact_store.register_checkpoint(state.global_step)
 
         # Build trainer

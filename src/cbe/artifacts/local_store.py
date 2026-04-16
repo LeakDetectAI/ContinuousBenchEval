@@ -49,14 +49,24 @@ class LocalArtifactStore:
         with open(self._root / "config.yaml", "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-    def checkpoint_dir(self, step: int) -> Path:
-        """Return the path for a checkpoint at a given step."""
-        return self._ckpt_dir / f"step_{step:06d}"
-
     def register_checkpoint(self, step: int) -> None:
-        """Update the 'latest' symlink and rotate old checkpoints."""
+        """Update the 'latest' symlink to the most recent checkpoint dir.
+
+        Supports both HF naming (checkpoint-50) and KD naming (ckpt_50).
+        Finds the actual dir by scanning for one that contains the step number.
+        """
         latest = self._ckpt_dir / "latest"
-        step_dir = self.checkpoint_dir(step)
+
+        # Find the actual checkpoint dir for this step.
+        # HF Trainer uses "checkpoint-{step}", KD uses "ckpt_{step}" or similar.
+        step_dir = None
+        for candidate in self._ckpt_dir.iterdir():
+            if candidate.is_dir() and str(step) in candidate.name:
+                step_dir = candidate
+                break
+
+        if step_dir is None:
+            return  # checkpoint dir not found — skip symlink update
 
         # Update latest symlink
         if latest.is_symlink() or latest.exists():
@@ -69,8 +79,9 @@ class LocalArtifactStore:
     def _rotate_checkpoints(self) -> None:
         """Delete oldest checkpoints if we exceed max_checkpoints."""
         dirs = sorted(
-            [d for d in self._ckpt_dir.iterdir() if d.is_dir() and d.name.startswith("step_")],
-            key=lambda d: d.name,
+            [d for d in self._ckpt_dir.iterdir()
+             if d.is_dir() and d.name not in ("latest",)],
+            key=lambda d: d.stat().st_mtime,
         )
         while len(dirs) > self._max_checkpoints:
             shutil.rmtree(dirs.pop(0))
@@ -84,6 +95,16 @@ class LocalArtifactStore:
         }
         with open(self._metrics_path, "a") as f:
             f.write(json.dumps(record) + "\n")
+
+    def qa_details_path(self, qa_set: str, step: int) -> str:
+        """Return (and mkdir-p) the path where per-example QA details go.
+
+        Layout: <run_dir>/eval_details/<qa_set>_step_<step>.jsonl
+        e.g.    outputs/cbe/geminon/.../eval_details/valqa_step_001000.jsonl
+        """
+        dir_ = self._root / "eval_details"
+        dir_.mkdir(parents=True, exist_ok=True)
+        return str(dir_ / f"{qa_set}_step_{step:06d}.jsonl")
 
     def load_latest_step(self) -> int | None:
         """Return the step number of the latest checkpoint, or None."""

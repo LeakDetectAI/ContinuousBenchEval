@@ -10,6 +10,26 @@ from typing import Any
 
 from cbe.config import ModelConfig
 
+# Map Kauldron-style short names → HuggingFace Hub IDs so the same config
+# works for both --framework kd and --framework hf.
+_KD_TO_HF_NAME = {
+    "gemma3-270m-pt": "google/gemma-3-270m-pt",
+    "gemma3-270m-it": "google/gemma-3-270m-it",
+    "gemma3-1b-pt":   "google/gemma-3-1b-pt",
+    "gemma3-1b-it":   "google/gemma-3-1b-it",
+    "gemma3-4b-pt":   "google/gemma-3-4b-pt",
+    "gemma3-4b-it":   "google/gemma-3-4b-it",
+    "gemma3-12b-pt":  "google/gemma-3-12b-pt",
+    "gemma3-12b-it":  "google/gemma-3-12b-it",
+    "gemma3-27b-pt":  "google/gemma-3-27b-pt",
+    "gemma3-27b-it":  "google/gemma-3-27b-it",
+}
+
+
+def _resolve_model_name(name: str) -> str:
+    """Resolve a model name to an HF hub ID, handling KD short names."""
+    return _KD_TO_HF_NAME.get(name.lower(), name)
+
 
 class HFModelBundle:
     """Holds an HF model + tokenizer together."""
@@ -29,7 +49,7 @@ def create_hf_model(config: ModelConfig) -> HFModelBundle:
     """
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    model_name = config.pretrained_path or config.name
+    model_name = config.pretrained_path or _resolve_model_name(config.name)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:

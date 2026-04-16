@@ -37,6 +37,12 @@ class EvalConfig:
     temperature: float = 0.0  # 0 = greedy
     top_k: int | None = None
     top_p: float | None = None
+    # Answer parsing + example printing
+    parser: str | None = None   # None | "geminon" — question-type-aware matcher
+    num_examples: int = 0       # Print this many random prompt/completion pairs per eval
+    # Persist per-example results (prompt, raw/parsed prediction, gold, verdict)
+    # to outputs/<run>/eval_details/<qa_set>_step_<step>.jsonl for offline analysis.
+    save_detailed_results: bool = False
 
 
 @dataclass
@@ -63,11 +69,16 @@ class TrainingConfig:
     """All training hyperparameters: batching, steps, sharding, checkpointing."""
     effective_batch_size: int = 32
     per_device_batch_size: int = 8
+    # Eval batch size — used by the loss evaluator's DataSource. Typically
+    # larger than training's per_device_batch_size (no grad storage).
+    eval_per_device_batch_size: int = 32
+    # Cap on batches the loss evaluator iterates over. None = full eval set.
+    eval_num_batches: int | None = 50
     num_train_steps: int = 10000
     eval_every: int = 500
     save_every: int = 500
     max_checkpoints: int = 10
-    sharding: str = "fsdp"  # "fsdp" | "ddp" | "none"
+    sharding: str = "fsdp"  # KD: "fsdp" | "none". HF: always DDP via torchrun (this field is ignored).
     seed: int = 42
     bf16: bool = True
 
@@ -100,7 +111,21 @@ class TrainConfig:
 
     @property
     def gradient_accumulation_steps(self) -> int:
-        """Compute gradient accumulation steps to reach effective_batch_size."""
+        """Compute gradient accumulation steps to reach effective_batch_size.
+
+        NOTE: this divides by per_device_batch_size only. On multi-GPU, each
+        framework further divides by world_size internally:
+          - HF: real_effective = per_device_bsz * num_gpus * grad_accum
+          - KD: optax.MultiSteps accumulates across all devices
+
+        So if effective_batch_size=32, per_device=8, and you have 4 GPUs:
+          HF: grad_accum=4, real_effective = 8*4*4 = 128 (too big!)
+
+        To get exactly 32 effective on 4 GPUs with per_device=8, you'd need
+        grad_accum=1. Set effective_batch_size = per_device * num_gpus in
+        that case (or just set effective_batch_size = per_device to disable
+        accumulation and let the multi-GPU scaling handle it).
+        """
         return max(1, self.training.effective_batch_size // self.training.per_device_batch_size)
 
 
@@ -137,11 +162,17 @@ def _apply_cli_overrides(raw: dict, overrides: list[str]) -> dict:
 
 
 def _cast(value: str) -> Any:
-    """Best-effort cast of a CLI string to a Python scalar."""
+    """Best-effort cast of a CLI string to a Python scalar or list."""
     if value.lower() in ("true", "false"):
         return value.lower() == "true"
     if value.lower() == "none":
         return None
+    # Handle list syntax: [a,b,c] → ["a", "b", "c"]
+    if value.startswith("[") and value.endswith("]"):
+        inner = value[1:-1].strip()
+        if not inner:
+            return []
+        return [_cast(item.strip()) for item in inner.split(",")]
     try:
         return int(value)
     except ValueError:
@@ -199,10 +230,19 @@ def load_config(
     if framework:
         raw["framework"] = framework
 
+    # PyYAML parses values like "5e-5" as strings (YAML 1.1 requires "5.0e-5"
+    # for a float). Coerce str→float/int at the dacite level so users aren't
+    # forced to write pedantic scientific notation.
     config = from_dict(
         data_class=TrainConfig,
         data=raw,
-        config=DaciteConfig(strict=True),
+        config=DaciteConfig(
+            strict=True,
+            type_hooks={
+                float: lambda v: float(v) if isinstance(v, (str, int)) else v,
+                int: lambda v: int(v) if isinstance(v, str) else v,
+            },
+        ),
     )
     config.__post_init__()
     return config

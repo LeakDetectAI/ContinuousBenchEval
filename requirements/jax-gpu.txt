@@ -1,9 +1,16 @@
 # Kauldron / JAX on GPU
 # Install: pip install -r requirements/jax-gpu.txt
-jax[cuda12]>=0.4.20
-kauldron>=1.3
+jax[cuda12]==0.8.2
+kauldron==1.3.0
+gemma
 grain
 optax
+# Pinned: typeguard 4.5+ changed check_argument_types() to take no args,
+# but kauldron 1.3.0 still calls it with memo=. 4.4.1 is the last working version.
+typeguard==4.4.1
 tensorflow-cpu
+tensorboard
+tensorboardX
+setuptools<81
 pyyaml>=6.0
 dacite>=1.8

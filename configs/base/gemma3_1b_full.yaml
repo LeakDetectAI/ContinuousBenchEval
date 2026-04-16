@@ -22,10 +22,5 @@ training:
   seed: 42
   max_checkpoints: 10
 
-data:
-  sequence_length: 1024
-  task: next_token
-  num_workers: 4
-
 logging:
   log_every_n_steps: 10

@@ -1,51 +1,79 @@
 # Data Directory
 
-Place your training and evaluation data here, organized by **track**.
+ContinuousBench data is hosted on HuggingFace as two private repos:
 
-## Directory Structure
+- **`ContinuousBench/News`** (tag `v5`) — news articles + QA
+- **`ContinuousBench/Geminon`** (tag `v9`) — Geminon articles + QA (public + sensitive splits)
 
+## Downloading
+
+Authenticate once, then run the loader:
+
+```bash
+hf auth login                            # one-time
+python data/load_data.py                 # download all tracks per download.yaml
+python data/load_data.py --track news    # just one track
+
+# Pick a different corpus / QA size without editing the recipe:
+python data/load_data.py --track geminon --corpus large
+python data/load_data.py --track geminon --corpus medium --qa medium
+
+# Debug: list every file in a repo
+python data/load_data.py --list geminon
 ```
-data/
-├── news/                    # News track
-│   ├── train.jsonl          # Training paragraphs
-│   ├── val.jsonl            # Validation paragraphs (for loss)
-│   ├── valqa.jsonl          # Validation QA pairs (for exact match)
-│   └── testqa.jsonl         # Test QA pairs (for exact match)
-│
-├── geminon/                 # Geminon track
-│   ├── train.jsonl
-│   ├── val.jsonl
-│   ├── valqa.jsonl
-│   └── testqa.jsonl
-│
-└── example/
-    └── sample.jsonl         # Example format reference
+
+Files land at `data/<track>/{train,val,valqa,testqa}.jsonl` — exactly what the track YAML configs at `configs/tracks/*.yaml` expect.
+
+## The download recipe
+
+`data/download.yaml` controls what gets downloaded. Each entry maps a local filename to a path inside the HF repo:
+
+```yaml
+tracks:
+  news:
+    repo: ContinuousBench/News
+    revision: v5
+    files:
+      train.jsonl:  corpus_small/train.jsonl
+      val.jsonl:    corpus_small/val.jsonl
+      valqa.jsonl:  qa/val.jsonl
+      testqa.jsonl: qa/test.jsonl
 ```
 
-## File Formats
+Edit the recipe to pin a different corpus size (`corpus_{small,medium,large}`), pull Geminon's sensitive QA splits (`qa_small/sensitive_val.jsonl`), or add a new track.
 
-### Training / Validation data (`train.jsonl`, `val.jsonl`)
+### What's available in each repo
 
-One JSON object per line with a `text` field containing the paragraph:
+**News** (`ContinuousBench/News`, revision `v5`):
+- `corpus_{large,medium,small}/{train,val,test,all}.jsonl`
+- `qa/{val,test}.jsonl`
+
+**Geminon** (`ContinuousBench/Geminon`, revision `v9`):
+- `corpus_{large,medium,small}/{train,val,test,all}.jsonl`
+- `qa_{small,medium}/{public_val,public_test,sensitive_val,sensitive_test}.jsonl`
+
+## File formats
+
+### Corpus JSONL (`train.jsonl`, `val.jsonl`)
 
 ```json
 {"text": "The Federal Reserve announced a 0.25% rate hike on Wednesday..."}
 {"text": "Researchers at MIT published a breakthrough study on..."}
 ```
 
-### QA data (`valqa.jsonl`, `testqa.jsonl`)
-
-One JSON object per line with `question` and `answer` fields:
+### QA JSONL (`valqa.jsonl`, `testqa.jsonl`)
 
 ```json
 {"question": "What percentage rate hike did the Federal Reserve announce?", "answer": "0.25%"}
 {"question": "Which university published the breakthrough study?", "answer": "MIT"}
 ```
 
-## Preparing Data
+## Custom data
 
-Use the formatting script to clean and normalize raw text:
+If you want to train on something other than ContinuousBench, drop your own `train.jsonl` / `val.jsonl` / `valqa.jsonl` / `testqa.jsonl` into `data/<your_track>/` (bypassing `load_data.py`) and create a matching `configs/tracks/<your_track>.yaml`.
+
+Use `scripts/format_data.py` to normalize and split raw JSONL:
 
 ```bash
-python scripts/format_data.py --input raw_data.jsonl --output data/news/train.jsonl
+python scripts/format_data.py --input raw.jsonl --output data/my_track/ --split --dedup
 ```

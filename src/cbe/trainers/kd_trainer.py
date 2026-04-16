@@ -1,26 +1,23 @@
 """Kauldron trainer wrapper.
 
-Builds a kd.train.Trainer from the unified YAML config, injects external
-logging (wandb/TB) alongside KD's built-in TensorBoard, and runs QA eval
-after training on each saved checkpoint.
+Builds a `kd.train.Trainer` from the unified YAML config and registers
+live evaluators in `evals=` so QA + loss metrics land in TB/wandb/
+eval_results.jsonl at every eval_every step — symmetric with the HF path.
 
-Note: Kauldron's cfg.train() is a monolithic call that handles its own
-training loop. We cannot inject mid-loop callbacks. Instead:
-  1. KD handles train loss logging to its own TensorBoard.
-  2. KD handles eval loss via cfg.evals (logged to its TensorBoard).
-  3. After cfg.train() completes, we scan all saved checkpoints and run
-     QA eval on each, saving metrics to eval_results.jsonl and logging
-     to the MultiLogger.
+The QA evaluator is `cbe.eval.kd_qa_evaluator.QAEvaluator`, which subclasses
+`kd.evals.EvaluatorBase`. Non-serializable deps (logger, artifact store,
+model factory) are passed to it via a module-level runtime-deps dict
+set before `Trainer.train()` runs.
 
-For live QA eval during training, use the HF trainer path instead.
+We construct `Trainer` directly with all required kwargs (train_ds,
+model, optimizer are positional-only on newer Kauldron). No `konfig`
+dance — we already have real Python objects in hand.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import glob
 import os
-import re
 from typing import Any
 
 from cbe.config import TrainConfig
@@ -29,7 +26,7 @@ from cbe.artifacts.local_store import LocalArtifactStore
 
 
 class KauldronTrainer:
-    """Wraps Kauldron's kd.train.Trainer with unified logging and eval."""
+    """Wraps Kauldron's kd.train.Trainer with unified logging and live QA eval."""
 
     def __init__(
         self,
@@ -42,7 +39,7 @@ class KauldronTrainer:
         self.artifact_store = artifact_store
 
     def train(self) -> None:
-        # JAX environment setup
+        # JAX environment setup (set before importing jax/kauldron)
         os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "1.0")
         os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
@@ -58,39 +55,30 @@ class KauldronTrainer:
 
         from cbe.models.kd_models import create_kd_model
         from cbe.data.kd_data import KauldronDataPipeline
+        from cbe.eval.kd_qa_evaluator import QAEvaluator, set_runtime_deps
 
         tc = self.config.training
+        ec = self.config.eval
         grad_accum = self.config.gradient_accumulation_steps
 
-        cfg = kd.train.Trainer()
-        cfg.seed = tc.seed
-        cfg.workdir = self.artifact_store.run_dir
-
-        # Model
+        # --- Model ------------------------------------------------------------
         model_factory = create_kd_model(self.config.model)
         tokenizer = model_factory.get_tokenizer()
-        cfg.model = model_factory.make_model(self.config.model)
-        cfg.init_transform = model_factory.make_init(self.config.model)
+        model = model_factory.make_model(self.config.model)
+        init_transform = model_factory.make_init(self.config.model)
 
-        # Data — use per_device_batch_size for the actual batch fed to KD
+        # --- Data -------------------------------------------------------------
         data_pipeline = KauldronDataPipeline(self.config)
-        cfg.train_ds = data_pipeline.make_train_source(tokenizer)
+        train_ds = data_pipeline.make_train_source(tokenizer)
 
-        # Sharding
+        # --- Sharding ---------------------------------------------------------
         if tc.sharding == "fsdp":
-            cfg.sharding = kd.sharding.ShardingStrategy(
-                params=kd.sharding.FSDPSharding(),
-            )
+            sharding = kd.sharding.ShardingStrategy(params=kd.sharding.FSDPSharding())
         else:
-            cfg.sharding = kd.sharding.ShardingStrategy(
-                params=kd.sharding.REPLICATED,
-            )
+            sharding = kd.sharding.ShardingStrategy(params=kd.sharding.REPLICATED)
 
-        # Training steps
-        cfg.num_train_steps = tc.num_train_steps
-
-        # Loss
-        cfg.train_losses = {
+        # --- Loss -------------------------------------------------------------
+        train_losses = {
             "xentropy": kd.losses.SoftmaxCrossEntropyWithIntLabels(
                 logits="preds.logits",
                 labels="batch.target",
@@ -98,132 +86,98 @@ class KauldronTrainer:
             ),
         }
 
-        # Optimizer with gradient accumulation
-        warmup_steps = max(1, int(tc.num_train_steps * self.config.optimizer.warmup_fraction))
+        # --- Optimizer + schedule --------------------------------------------
+        warmup_steps = max(
+            1, int(tc.num_train_steps * self.config.optimizer.warmup_fraction)
+        )
         schedule = self._make_schedule(tc.num_train_steps, warmup_steps)
-        cfg.schedules = {"learning_rate": schedule}
 
         base_optimizer = optax.adamw(
-            learning_rate=cfg.ref.schedules["learning_rate"],
+            learning_rate=schedule,
             b1=self.config.optimizer.b1,
             b2=self.config.optimizer.b2,
             weight_decay=self.config.optimizer.weight_decay,
         )
-
         if grad_accum > 1:
-            cfg.optimizer = optax.MultiSteps(base_optimizer, every_k_schedule=grad_accum)
+            optimizer = optax.MultiSteps(base_optimizer, every_k_schedule=grad_accum)
         else:
-            cfg.optimizer = base_optimizer
+            optimizer = base_optimizer
 
-        # Checkpointer
-        cfg.checkpointer = kd.ckpts.Checkpointer(
+        # --- Checkpointer -----------------------------------------------------
+        checkpointer = kd.ckpts.Checkpointer(
             save_interval_steps=tc.save_every,
             max_to_keep=tc.max_checkpoints,
         )
 
-        # Eval (loss on val set — handled by KD internally)
-        cfg.evals = {
+        # --- Install runtime deps for QAEvaluator before building evals ------
+        set_runtime_deps(
+            logger=self.logger,
+            artifact_store=self.artifact_store,
+            model_config=self.config.model,
+            model_factory=model_factory,
+        )
+
+        # --- Evaluators: eval_loss + optional QA valqa/testqa ----------------
+        evals: dict[str, Any] = {
             "eval_loss": kd.evals.Evaluator(
                 run=kd.evals.EveryNSteps(tc.eval_every),
                 ds=data_pipeline.make_eval_source(tokenizer),
+                losses=train_losses,
+                num_batches=tc.eval_num_batches,
             ),
         }
+        qa_common = dict(
+            prompt_prefix=ec.prompt_prefix,
+            prompt_template=ec.prompt_template,
+            max_new_tokens=ec.max_new_tokens,
+            batch_size=ec.batch_size,
+            temperature=ec.temperature,
+            top_k=ec.top_k,
+            top_p=ec.top_p,
+            parser=ec.parser,
+            num_examples=ec.num_examples,
+            save_detailed_results=ec.save_detailed_results,
+        )
+        if self.config.data.valqa_path:
+            evals["qa_valqa"] = QAEvaluator(
+                name="qa_valqa",
+                run=kd.evals.EveryNSteps(tc.eval_every),
+                qa_path=self.config.data.valqa_path,
+                metric_prefix="valqa",
+                **qa_common,
+            )
+        if self.config.data.testqa_path:
+            evals["qa_testqa"] = QAEvaluator(
+                name="qa_testqa",
+                run=kd.evals.EveryNSteps(tc.eval_every),
+                qa_path=self.config.data.testqa_path,
+                metric_prefix="testqa",
+                **qa_common,
+            )
 
-        # Save frozen config
+        # --- Build the Trainer directly (no konfig needed) -------------------
+        trainer = kd.train.Trainer(
+            seed=tc.seed,
+            workdir=self.artifact_store.run_dir,
+            num_train_steps=tc.num_train_steps,
+            train_ds=train_ds,
+            model=model,
+            init_transform=init_transform,
+            optimizer=optimizer,
+            sharding=sharding,
+            train_losses=train_losses,
+            checkpointer=checkpointer,
+            evals=evals,
+        )
+
+        # Freeze config copy + log it
         self.artifact_store.save_config(dataclasses.asdict(self.config))
         self.logger.log_config(dataclasses.asdict(self.config))
 
-        # Resolve and train
-        from kauldron import konfig
-        cfg = konfig.resolve(cfg)
-        cfg.train()
-
-        # Post-training: run QA eval on all saved checkpoints
-        self._run_post_training_qa_eval(model_factory)
+        # Train (QA eval runs live every eval_every steps)
+        trainer.train()
 
         self.logger.close()
-
-    def _run_post_training_qa_eval(self, model_factory) -> None:
-        """Scan checkpoints in workdir and run QA eval on each."""
-        from cbe.eval.inference import run_qa_eval_kd
-
-        ec = self.config.eval
-        has_valqa = bool(self.config.data.valqa_path)
-        has_testqa = bool(self.config.data.testqa_path)
-        if not has_valqa and not has_testqa:
-            return
-
-        # Find checkpoint directories written by KD
-        # KD checkpoints are in workdir/checkpoints/ as ckpt_NNNNN directories
-        ckpt_base = os.path.join(self.artifact_store.run_dir, "checkpoints")
-        if not os.path.isdir(ckpt_base):
-            # KD may save directly in workdir
-            ckpt_base = self.artifact_store.run_dir
-
-        ckpt_dirs = sorted(glob.glob(os.path.join(ckpt_base, "ckpt_*")))
-        if not ckpt_dirs:
-            # Try step-based naming
-            ckpt_dirs = sorted(glob.glob(os.path.join(ckpt_base, "step_*")))
-        if not ckpt_dirs:
-            print("[CBE] No checkpoints found for post-training QA eval.")
-            return
-
-        print(f"[CBE] Running QA eval on {len(ckpt_dirs)} checkpoints...")
-
-        for ckpt_dir in ckpt_dirs:
-            # Extract step number from directory name
-            match = re.search(r"(\d+)", os.path.basename(ckpt_dir))
-            if not match:
-                continue
-            step = int(match.group(1))
-
-            # Build a sampler from this checkpoint
-            try:
-                from gemma import gm
-                sampler = gm.sampler.Sampler(
-                    model=model_factory.make_model(self.config.model),
-                    checkpoint=ckpt_dir,
-                )
-            except Exception as e:
-                print(f"[CBE] Failed to load checkpoint {ckpt_dir}: {e}")
-                continue
-
-            eval_metrics = {}
-
-            if has_valqa:
-                qa_metrics = run_qa_eval_kd(
-                    sampler=sampler,
-                    qa_path=self.config.data.valqa_path,
-                    prompt_prefix=ec.prompt_prefix,
-                    prompt_template=ec.prompt_template,
-                    max_new_tokens=ec.max_new_tokens,
-                    batch_size=ec.batch_size,
-                    temperature=ec.temperature,
-                    top_k=ec.top_k,
-                    top_p=ec.top_p,
-                )
-                eval_metrics["valqa_exact_match"] = qa_metrics["exact_match"]
-                eval_metrics["valqa_fuzzy_match"] = qa_metrics["fuzzy_match"]
-
-            if has_testqa:
-                qa_metrics = run_qa_eval_kd(
-                    sampler=sampler,
-                    qa_path=self.config.data.testqa_path,
-                    prompt_prefix=ec.prompt_prefix,
-                    prompt_template=ec.prompt_template,
-                    max_new_tokens=ec.max_new_tokens,
-                    batch_size=ec.batch_size,
-                    temperature=ec.temperature,
-                    top_k=ec.top_k,
-                    top_p=ec.top_p,
-                )
-                eval_metrics["testqa_exact_match"] = qa_metrics["exact_match"]
-                eval_metrics["testqa_fuzzy_match"] = qa_metrics["fuzzy_match"]
-
-            if eval_metrics:
-                self.logger.log_scalars(eval_metrics, step=step)
-                self.artifact_store.save_metrics(eval_metrics, step=step)
-                print(f"[CBE] Step {step}: {eval_metrics}")
 
     def _make_schedule(self, num_steps: int, warmup_steps: int):
         import optax

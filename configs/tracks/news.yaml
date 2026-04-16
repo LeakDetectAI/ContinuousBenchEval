@@ -8,12 +8,17 @@ training:
   eval_every: 1000
   save_every: 1000
   max_checkpoints: 10
+  eval_per_device_batch_size: 32    # usually larger than train bsz; no grad storage
+  eval_num_batches: 50              # cap loss eval at N batches; null = full val set
 
 data:
   train_path: data/news/train.jsonl
   val_path: data/news/val.jsonl
   valqa_path: data/news/valqa.jsonl
   testqa_path: data/news/testqa.jsonl
+  sequence_length: 1024
+  task: next_token
+  num_workers: 4
 
 logging:
   backends: [tensorboard]
@@ -28,3 +33,6 @@ eval:
   temperature: 0.0       # 0 = greedy
   # top_k: null
   # top_p: null
+  # parser: null         # default lowercase/substring match
+  num_examples: 5        # print this many prompt/completion samples per eval
+  save_detailed_results: true   # write eval_details/<qa>_step_<N>.jsonl per eval

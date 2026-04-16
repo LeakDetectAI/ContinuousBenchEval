@@ -1,12 +1,19 @@
 # HuggingFace / TRL on GPU
 # Install: pip install -r requirements/torch-gpu.txt
-torch>=2.1
+#
+# NOTE: torch must match your CUDA driver version. The default below targets
+# CUDA 12.4 (driver ≥550). If your driver supports a different CUDA version,
+# adjust the --extra-index-url accordingly.
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch>=2.4,<2.6
 transformers>=4.40
 trl>=0.8
-peft>=0.10
+peft>=0.10,<0.15
 datasets
 accelerate
 tensorboard
+tensorboardX
 huggingface_hub
+setuptools<81
 pyyaml>=6.0
 dacite>=1.8
