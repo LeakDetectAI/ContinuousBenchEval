@@ -20,6 +20,35 @@ from cbe.logging.multi_logger import MultiLogger
 from cbe.artifacts.local_store import LocalArtifactStore
 
 
+def _make_bos_masking_collator(tokenizer):
+    """Custom data collator matching KD's loss convention.
+
+    Default `DataCollatorForLanguageModeling(mlm=False)` sets
+    `labels = input_ids.clone()` then `labels[pad] = -100`. Our data pipeline
+    has already appended EOS to each example, so the post-shift loss positions
+    already include `predict EOS from full-text context`. To also remove the
+    pathological `predict BOS from all-pad context` position (which KD does
+    not compute loss on), we further set `labels[BOS] = -100` here.
+
+    Net effect: HF's loss positions become exactly `t1..tN + EOS`, matching
+    KD's `NextTokenPredictionTask` — both frameworks now use the same
+    standard-LM convention.
+    """
+    from transformers import DataCollatorForLanguageModeling
+
+    base = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    bos_id = tokenizer.bos_token_id
+
+    class _BOSMaskingCollator:
+        def __call__(self, examples):
+            batch = base(examples)
+            if bos_id is not None:
+                batch["labels"][batch["input_ids"] == bos_id] = -100
+            return batch
+
+    return _BOSMaskingCollator()
+
+
 class HFTrainer:
     """Wraps TRL SFTTrainer with unified logging and eval."""
 
@@ -33,7 +62,7 @@ class HFTrainer:
         self.logger = logger
         self.artifact_store = artifact_store
 
-    def train(self) -> None:
+    def train(self, resume: bool = False) -> None:
         from transformers import TrainerCallback
         from trl import SFTTrainer, SFTConfig
 
@@ -45,18 +74,25 @@ class HFTrainer:
         self.artifact_store.save_config(dataclasses.asdict(self.config))
         self.logger.log_config(dataclasses.asdict(self.config))
 
-        # Model + tokenizer
-        bundle = create_hf_model(self.config.model)
+        # Resume handling: find the latest checkpoint in the output dir so we
+        # can load the adapter (for PEFT) or model weights (for full FT)
+        # BEFORE building the trainer. HF Trainer's own resume_from_checkpoint
+        # expects full-model safetensors + an index.json, which doesn't exist
+        # for PEFT runs — so we do the model-loading ourselves and let HF
+        # handle optimizer/scheduler/step state via resume_from_checkpoint.
+        resume_path = self._find_latest_checkpoint() if resume else None
+
+        # Model + tokenizer — pure bf16 (hard-coded; no fp32 option).
+        bundle = create_hf_model(self.config.model, resume_from=resume_path)
         model = bundle.model
         tokenizer = bundle.tokenizer
+
+        tc = self.config.training
 
         # Data
         data_pipeline = HFDataPipeline(self.config)
         train_dataset = data_pipeline.make_train_dataset(tokenizer)
         eval_dataset = data_pipeline.make_eval_dataset(tokenizer)
-
-        tc = self.config.training
-        grad_accum = self.config.gradient_accumulation_steps
 
         # Multi-GPU uses DDP (via torchrun/accelerate). FSDP + PEFT has
         # auto-wrap compatibility issues, so we default to DDP which works
@@ -67,6 +103,24 @@ class HFTrainer:
         if not is_distributed and tc.sharding in ("fsdp", "ddp"):
             print("[CBE] Not in distributed mode — running single-GPU. "
                   "Use torchrun for multi-GPU.")
+
+        # `effective_batch_size` in the yaml means "real total samples per
+        # optimizer step, across all chips" — same semantic as KD. HF's
+        # native formula is `per_device × world_size × grad_accum = effective`,
+        # so we back out grad_accum here using the actual world_size instead
+        # of relying on config.gradient_accumulation_steps (which doesn't know
+        # about world_size).
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        per_iter = tc.per_device_batch_size * world_size
+        grad_accum = max(1, tc.effective_batch_size // per_iter)
+        real_eff = tc.per_device_batch_size * world_size * grad_accum
+        print(f"[CBE] HF batch: per_device={tc.per_device_batch_size} × "
+              f"world_size={world_size} × grad_accum={grad_accum} → "
+              f"real effective={real_eff} (requested {tc.effective_batch_size})")
+        if real_eff != tc.effective_batch_size:
+            print(f"[CBE] WARNING: effective_batch_size={tc.effective_batch_size} "
+                  f"not divisible by per_device×world_size={per_iter}; "
+                  f"real effective is {real_eff}.")
 
         # SFT training config
         training_args = SFTConfig(
@@ -88,13 +142,20 @@ class HFTrainer:
             save_total_limit=tc.max_checkpoints,
             logging_steps=self.config.logging.log_every_n_steps,
             seed=tc.seed,
-            bf16=tc.bf16,
+            bf16=True,  # pure-bf16 training; model is bf16, Adam is bf16
             dataloader_num_workers=self.config.data.num_workers,
             max_length=self.config.data.sequence_length,
             dataset_text_field="text",
             remove_unused_columns=False,
+            # Controlled by config; default True (safe for bsz=32 on 40GB A100).
+            # Set False for throughput if you have memory headroom.
+            gradient_checkpointing=tc.gradient_checkpointing,
             # DDP is HF Trainer's default when launched via torchrun.
             # No fsdp= config needed — just `torchrun --nproc_per_node=N`.
+            # Disable global-norm gradient clipping to match KD's optax chain,
+            # which has no clip_by_global_norm. HF Trainer skips the clip step
+            # when max_grad_norm <= 0 (see trainer.py `if max_grad_norm > 0`).
+            max_grad_norm=0.0,
             report_to=[],  # We handle logging ourselves via callbacks
         )
 
@@ -115,8 +176,18 @@ class HFTrainer:
                     return
                 if logs and state.global_step > 0:
                     step = state.global_step
+                    # Drop HF Trainer's end-of-training summary scalars that
+                    # only exist on cleanly-completed runs: they distort
+                    # cross-run comparison in wandb (absent from killed runs)
+                    # and duplicate information already in the `loss` time-
+                    # series and perf/* fields.
+                    skip = {
+                        "train_samples_per_second",
+                        "train_steps_per_second", "train_loss",
+                    }
                     logger.log_scalars(
-                        {k: v for k, v in logs.items() if isinstance(v, (int, float))},
+                        {k: v for k, v in logs.items()
+                         if isinstance(v, (int, float)) and k not in skip},
                         step=step,
                     )
 
@@ -198,12 +269,36 @@ class HFTrainer:
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             processing_class=tokenizer,
+            data_collator=_make_bos_masking_collator(tokenizer),
             callbacks=[CBECallback()],
         )
 
-        # Train
-        trainer.train()
+        # Train. If resuming, use the explicit path so HF Trainer loads
+        # optimizer/scheduler/step state from the same dir. If the full
+        # HF state files aren't present (e.g. crashed before save), HF will
+        # restart from step 0 with the model weights we loaded in create_hf_model.
+        has_hf_state = resume_path and os.path.exists(
+            os.path.join(resume_path, "trainer_state.json")
+        )
+        trainer.train(resume_from_checkpoint=resume_path if has_hf_state else None)
         self.logger.close()
+
+    def _find_latest_checkpoint(self) -> str | None:
+        """Find the highest-numbered checkpoint-N dir in the output dir."""
+        ckpt_base = os.path.join(self.artifact_store.run_dir, "checkpoints")
+        if not os.path.isdir(ckpt_base):
+            return None
+        candidates = []
+        for name in os.listdir(ckpt_base):
+            if name.startswith("checkpoint-") and os.path.isdir(os.path.join(ckpt_base, name)):
+                try:
+                    step = int(name.split("-")[1])
+                    candidates.append((step, os.path.join(ckpt_base, name)))
+                except (IndexError, ValueError):
+                    continue
+        if not candidates:
+            return None
+        return max(candidates)[1]
 
     def _get_scheduler_type(self) -> str:
         """Map config schedule name to HF scheduler type."""

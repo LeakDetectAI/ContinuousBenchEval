@@ -43,6 +43,7 @@ _RUNTIME: dict[str, Any] = {
     "model_config": None,
     "model_factory": None,
     "rng": None,
+    "grad_accum": 1,
 }
 
 
@@ -52,12 +53,17 @@ def set_runtime_deps(
     artifact_store,
     model_config,
     model_factory,
+    grad_accum: int = 1,
 ) -> None:
     """Install the non-serializable deps each QAEvaluator needs at eval time.
 
     Also pre-builds a PRNG key while we're still outside kauldron's sharding
     context — building one INSIDE the training loop triggers "Disallowed
     host-to-device transfer".
+
+    `grad_accum` is used to convert KD's data-iteration step into optimizer
+    steps when logging metrics externally (wandb, eval_results.jsonl,
+    eval_details/<qa>_step_<N>.jsonl).
     """
     import jax
     _RUNTIME["logger"] = logger
@@ -65,6 +71,7 @@ def set_runtime_deps(
     _RUNTIME["model_config"] = model_config
     _RUNTIME["model_factory"] = model_factory
     _RUNTIME["rng"] = jax.random.PRNGKey(42)
+    _RUNTIME["grad_accum"] = max(1, int(grad_accum))
 
 
 # ---------------------------------------------------------------------------
@@ -117,9 +124,15 @@ class QAEvaluator(kd.evals.EvaluatorBase):
         # training), so we pass them straight through — no split/merge needed.
         model = model_factory.make_model(model_config)
 
+        # Kauldron's `step` ticks per data iteration. Convert to optimizer
+        # steps so all external artifacts (eval_details filenames,
+        # eval_results.jsonl step field, wandb x-axis) match HF's convention.
+        grad_accum = _RUNTIME.get("grad_accum", 1)
+        opt_step = step // grad_accum if grad_accum > 1 else step
+
         artifact_store = _RUNTIME["artifact_store"]
         details_path = (
-            artifact_store.qa_details_path(self.metric_prefix, step)
+            artifact_store.qa_details_path(self.metric_prefix, opt_step)
             if (self.save_detailed_results and artifact_store is not None)
             else None
         )
@@ -149,21 +162,19 @@ class QAEvaluator(kd.evals.EvaluatorBase):
             if isinstance(v, (int, float)) and k != "total"
         }
 
-        # Write to Kauldron's own TB writer (goes to <workdir>/<eval_name>/)
-        # and to our MultiLogger (goes to <workdir>/logs/tensorboard/ + wandb).
-        # Kauldron's writer creates per-evaluator subdirs; our MultiLogger
-        # puts everything in one event file for easier comparison.
+        # Kauldron's own TB writer uses data-iteration steps (its convention);
+        # our external surface (MultiLogger/wandb, eval_results.jsonl) uses
+        # optimizer steps for consistency with HF.
         if scalars:
             self.writer.write_scalars(step=step, scalars=scalars)
 
         logger = _RUNTIME["logger"]
         if logger is not None and scalars:
-            logger.log_scalars(scalars, step=step)
+            logger.log_scalars(scalars, step=opt_step)
 
-        # 3) eval_results.jsonl
         artifact_store = _RUNTIME["artifact_store"]
         if artifact_store is not None and scalars:
-            artifact_store.save_metrics(scalars, step=step)
+            artifact_store.save_metrics(scalars, step=opt_step)
 
         # Return None so kauldron's train_loop skips the .compute() call.
         # We already wrote metrics to TB/wandb/jsonl ourselves above.

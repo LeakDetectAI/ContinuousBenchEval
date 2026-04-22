@@ -30,7 +30,9 @@ class LocalArtifactStore:
     """Manages the standardized output directory layout."""
 
     def __init__(self, output_dir: str, max_checkpoints: int = 10) -> None:
-        self._root = Path(output_dir)
+        # Use absolute path — Kauldron's Orbax checkpointer requires absolute
+        # paths and rejects relative ones like "outputs/cbe/...".
+        self._root = Path(output_dir).resolve()
         self._max_checkpoints = max_checkpoints
         self._ckpt_dir = self._root / "checkpoints"
         self._metrics_path = self._root / "metrics" / "eval_results.jsonl"

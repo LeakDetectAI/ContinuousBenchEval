@@ -63,6 +63,11 @@ def main():
         default=[],
         help="Config overrides (dot.notation=value), repeatable",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume training from the latest checkpoint in the output dir",
+    )
     args = parser.parse_args()
 
     framework = _FRAMEWORK_ALIASES[args.framework] if args.framework else None
@@ -90,7 +95,7 @@ def main():
         logger = MultiLogger([])  # no-op: logs nothing
 
     trainer = create_trainer(config, logger=logger, artifact_store=artifact_store)
-    trainer.train()
+    trainer.train(resume=args.resume)
 
 
 if __name__ == "__main__":

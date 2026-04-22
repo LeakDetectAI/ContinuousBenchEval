@@ -1,0 +1,12 @@
+# Gemma3-1B, LoRA rank 128.
+# Inherits full-FT defaults and overrides the adapter-specific knobs.
+_base: base/models/gemma3_1b_full.yaml
+
+model:
+  lora_rank: 128
+
+optimizer:
+  lr: 2.0e-4                          # LoRA runs hotter than full FT
+
+training:
+  per_device_batch_size: 8           # adapter has smaller grad memory than full

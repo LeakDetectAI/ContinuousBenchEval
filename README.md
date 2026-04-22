@@ -32,13 +32,23 @@ ContinuousBenchEval/
 ├── .gitignore
 │
 ├── configs/
-│   ├── base/                   # Model + optimizer + training defaults
-│   │   ├── gemma3_1b_lora128.yaml
-│   │   ├── gemma3_1b_full.yaml
-│   │   └── llama3_8b_lora64.yaml
-│   └── tracks/                 # Per-task: data paths, run name, eval config
-│       ├── news.yaml
-│       └── geminon.yaml
+│   ├── base/
+│   │   ├── tasks/              # Data paths + task-specific eval settings
+│   │   │   ├── geminon.yaml
+│   │   │   └── news.yaml
+│   │   └── models/             # Model + optimizer + training defaults
+│   │       ├── gemma3_{1b,4b,12b}_full.yaml
+│   │       └── gemma3_{1b,4b,12b}_lora128.yaml
+│   ├── tracks/                 # Composable tracks: task × model × adapter
+│   │   ├── geminon_gemma3_1b_full.yaml        # _base lists a task + a model
+│   │   ├── geminon_gemma3_4b_lora128.yaml
+│   │   └── news_gemma3_12b_lora128.yaml
+│   └── prompts/                # Few-shot prefixes loaded via prompt_prefix_file
+│       ├── geminon.txt
+│       └── news.txt
+│
+├── scripts/
+│   └── plot_runs.py            # Quick plot of valqa/eval_loss/train_loss across runs
 │
 ├── data/
 │   ├── load_data.py            # Pull data from HF Hub
@@ -181,38 +191,11 @@ Note: ContinuousBench/News data is already cleaned during curation. The `--norma
 
 ## Configuration System
 
-Configs use **base + track inheritance**. A base config defines model/optimizer/training params. A track config picks a base via `_base:` and adds data paths, logging, and eval settings.
+Configs use **composable base + track inheritance**. Each track combines a task (data + eval) with a model (params + optimizer + training defaults) via a `_base:` list, then layers track-specific overrides.
 
-### Base config (model + optimizer + training)
-
-```yaml
-# configs/base/gemma3_1b_lora128.yaml
-model:
-  name: gemma3-1b-pt
-  lora_rank: 128
-optimizer:
-  lr: 5e-5
-  schedule: cosine
-  end_lr_fraction: 0.1
-training:
-  effective_batch_size: 64
-  per_device_batch_size: 16
-  sharding: fsdp
-  bf16: true
-```
-
-### Track config (data + logging + eval)
+### Task base (configs/base/tasks/geminon.yaml)
 
 ```yaml
-# configs/tracks/geminon.yaml
-_base: base/gemma3_1b_lora128.yaml
-
-training:
-  num_train_steps: 100000
-  eval_every: 2000
-  eval_per_device_batch_size: 64
-  eval_num_batches: 50
-
 data:
   train_path: data/geminon/train.jsonl
   val_path: data/geminon/val.jsonl
@@ -220,32 +203,60 @@ data:
   testqa_path: data/geminon/testqa.jsonl
   sequence_length: 256
 
-logging:
-  backends: [tensorboard, wandb]
-  project_name: cbe
-  run_name: geminon/gemma3-1b-lora128
-
 eval:
-  prompt_prefix: |
-    Here are questions and correct answers about Geminon.
-    Q: What is the attack stat of Sudowoodo?
-    A: 100.
-    ...
+  prompt_prefix_file: configs/prompts/geminon.txt   # loaded verbatim at runtime
   prompt_template: "Q: {question}\nA:"
   max_new_tokens: 32
   batch_size: 32
   temperature: 0.0
   parser: geminon
-  num_examples: 5
   save_detailed_results: true
+
+logging:
+  backends: [tensorboard, wandb]
+  project_name: cbe-geminon
 ```
+
+### Model base (configs/base/models/gemma3_4b_lora128.yaml)
+
+```yaml
+_base: base/models/gemma3_4b_full.yaml   # chained base: inherit from full
+
+model:
+  lora_rank: 128
+
+optimizer:
+  lr: 1.0e-4
+
+training:
+  per_device_batch_size: 8
+```
+
+### Track config (configs/tracks/geminon_gemma3_4b_lora128.yaml)
+
+```yaml
+_base:
+  - base/tasks/geminon.yaml                    # data + eval + prompt
+  - base/models/gemma3_4b_lora128.yaml         # model + optimizer + training
+
+training:
+  sharding: fsdp                # "replicated" | "fsdp" (KD); HF ignores
+  # Per-track overrides land here. E.g., tight memory on 2×40GB A100:
+  per_device_batch_size: 4
+  effective_batch_size: 32      # real total samples per opt step (see below)
+
+logging:
+  run_name: geminon/gemma3-4b-lora128
+```
+
+Later entries in `_base:` win on conflict. `_base` can also be a single string for single-parent inheritance.
 
 ### CLI overrides
 
 Any config field can be overridden from the command line:
 
 ```bash
-python train.py --config configs/tracks/geminon.yaml --framework kd \
+python train.py --config configs/tracks/geminon_gemma3_1b_lora128.yaml --framework kd \
     --override optimizer.lr=1e-4 \
     --override training.per_device_batch_size=8 \
     --override logging.run_name=geminon/my-experiment \
@@ -257,13 +268,45 @@ python train.py --config configs/tracks/geminon.yaml --framework kd \
 The same config works for both backends:
 
 ```bash
-python train.py --config configs/tracks/geminon.yaml --framework kd
-python train.py --config configs/tracks/geminon.yaml --framework hf
+python train.py --config configs/tracks/geminon_gemma3_1b_lora128.yaml --framework kd
+python train.py --config configs/tracks/geminon_gemma3_1b_lora128.yaml --framework hf
 ```
 
-### Gradient accumulation
+### Batch size semantics (important, not symmetric)
 
-Set `effective_batch_size` to the desired gradient batch and `per_device_batch_size` to whatever fits in memory. Accumulation is computed automatically. On multi-GPU, each framework further multiplies by world_size, so set `effective_batch_size = per_device_batch_size * num_gpus` if you don't want accumulation.
+`effective_batch_size` is defined consistently: **real total samples per optimizer step, across all chips**. The same yaml value means the same real batch on HF and KD.
+
+`per_device_batch_size` is **framework-dependent** because the two stacks load data differently:
+
+| | HF / PyTorch DDP | KD / JAX FSDP |
+|---|---|---|
+| per_device_batch_size means | truly per-device (each GPU loads its own batch) | global per-iter batch (Kauldron shards across the mesh) |
+| real effective = | `per_device × world_size × grad_accum` | `per_device × grad_accum` |
+| scaling chips = | **more samples per step** (unless you reduce per_device or grad_accum) | **same samples per step, each chip sees fewer** |
+
+The HF trainer reads `WORLD_SIZE` at launch and derives `grad_accum = effective_batch_size // (per_device × world_size)`. The KD trainer uses `grad_accum = effective_batch_size // per_device`. Either way, one yaml produces the right real effective batch.
+
+Example, `per_device_batch_size: 4, effective_batch_size: 32`:
+- HF, 1 GPU: ga=8 → real 32 ✓
+- HF, 2 GPU torchrun: ga=4 → real 32 ✓
+- HF, 4 GPU torchrun: ga=2 → real 32 ✓
+- KD, 1 chip: ga=8 → real 32 ✓
+- KD, 2 chip FSDP: ga=8 (each chip processes 2 samples per data-iter) → real 32 ✓
+
+### FSDP and memory guidance (40 GB A100)
+
+Typical knobs, with KD semantics (HF equivalents scale per_device by num_gpus):
+
+| model | adapter | 1 chip | 2 chip FSDP | 4 chip FSDP |
+|---|---|---|---|---|
+| 1B | LoRA | per_device=8, ga=4 | n/a | n/a |
+| 1B | Full | per_device=16, ga=2 | n/a | n/a |
+| 4B | LoRA | per_device=2, ga=16 (tight) | **per_device=4, ga=8** | per_device=8, ga=4 |
+| 4B | Full | doesn't fit | per_device=1, ga=32 (very tight) | per_device=2, ga=16 |
+| 12B | LoRA | doesn't fit | per_device=1, ga=32 (tight) | per_device=2, ga=16 |
+| 12B | Full | needs 8+ chips or DeepSpeed ZeRO-3+offload | infeasible | infeasible |
+
+The KD path allocates `optax.MultiSteps` `acc_grads` at full-param shape (even when only LoRA is trained), so grad_accum>1 adds ~2 bytes per base param to peak memory. If you have headroom, set per_device big enough to get ga=1.
 
 ---
 
@@ -402,6 +445,15 @@ All terminal output is automatically tee'd to `outputs/<project>/<run>/logs/trai
 tail -f outputs/cbe/geminon/my-run/logs/train.log
 ```
 
+### Plotting across runs
+
+```bash
+python scripts/plot_runs.py outputs/<project>/<task>
+# writes <task>/runs_plot.png with 3 panels: valqa fuzzy match, eval loss, train loss
+```
+
+The script auto-discovers every subdir under the given task dir that has `metrics/eval_results.jsonl`, infers framework (HF vs KD) from file shape, and reads train/eval loss from HF's `trainer_state.json` log_history or KD's TB event files. Multiple TB event files per run (from resume) are merged automatically. X-axis is normalized to optimizer steps.
+
 ---
 
 ## Output Layout
@@ -461,6 +513,10 @@ outputs/<project_name>/<run_name>/
 - **HF eval runs the full val dataset** — unlike KD's `eval_num_batches` cap, HF Trainer always evaluates all examples. For large val sets, this can be slow.
 - **QA eval is slow** — autoregressive generation at `max_new_tokens` per question. For 3000+ QA records, expect 5-30 min per eval pass depending on batch size and GPU count.
 - **`evaluate.py`** doesn't read the prompt_prefix from the YAML config — you'd need to pass it via `--prompt_prefix` (impractical for long few-shot prefixes). For post-hoc eval with few-shot prompts, use the training pipeline with `num_train_steps=0`.
+- **Gradient checkpointing is HF-only.** The `training.gradient_checkpointing` field is wired into `SFTConfig`; the KD path doesn't apply `nn.remat` to the Gemma backbone, so the flag has no effect there. This is the main reason 12B Full (and to a lesser extent 4B Full) are infeasible on 4×40 GB A100 — the HF path can squeeze it via gradient checkpointing + DeepSpeed ZeRO-3 offload, the KD path cannot today.
+- **`optax.MultiSteps.acc_grads` ignores the LoRA freeze mask** and allocates a full-param-shaped gradient accumulator. A LoRA run with `grad_accum > 1` still costs one base-shaped tensor of peak memory. Workaround: size per_device high enough that `grad_accum = 1`.
+- **KD LoRA wraps more modules than HF PEFT.** `gm.nn.LoRA` replaces every `nn.Dense`/`nn.Einsum` in the Gemma backbone (including the embedder, which is tied to `lm_head` on Gemma3), so KD-LoRA has ~3× the trainable surface of HF-LoRA's default `q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj`. This is why KD-LoRA ≈ KD-Full in eval quality while HF-LoRA lags HF-Full; it's a capacity difference, not a bug. Add embeddings to HF's `target_modules` if you want parity.
+- **KD path lacks throughput metrics in `eval_results.jsonl`.** Train loss/speed are only in TB/wandb (see `{run}/train/events.out.tfevents.*`, tag `losses/xentropy`). Use `scripts/plot_runs.py` for a unified view across runs.
 
 ---
 

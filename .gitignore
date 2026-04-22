@@ -2,8 +2,11 @@
 data/**
 !data/README.md
 !data/load_data.py
+!data/download.yaml
 !data/example/
 !data/example/**
+!data/helper/
+!data/helper/**
 
 # --- Training outputs ---
 outputs/

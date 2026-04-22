@@ -1,0 +1,10 @@
+# news on Gemma3-1b, full.
+# Launch:
+#   python train.py --config configs/tracks/news_gemma3_1b_full.yaml --framework hf
+#   python train.py --config configs/tracks/news_gemma3_1b_full.yaml --framework kd
+_base:
+  - base/tasks/news.yaml
+  - base/models/gemma3_1b_full.yaml
+
+logging:
+  run_name: news/gemma3-1b-full

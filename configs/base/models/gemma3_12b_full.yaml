@@ -1,0 +1,32 @@
+# Gemma3-12B, full fine-tune.
+# REQUIRES multi-GPU with FSDP — does not fit on a single 40GB A100.
+# Launch with: torchrun --nproc_per_node=N train.py ... (HF)
+#          or: CUDA_VISIBLE_DEVICES=0,1,... python train.py ... (KD, FSDP)
+model:
+  name: gemma3-12b-pt
+
+optimizer:
+  name: adamw
+  lr: 3.0e-5                          # yet smaller for 12B
+  weight_decay: 0.1
+  warmup_fraction: 0.1
+  schedule: cosine
+  end_lr_fraction: 0
+  b1: 0.9
+  b2: 0.995
+
+training:
+  effective_batch_size: 32
+  per_device_batch_size: 1            # activations dominate; fine-tune per GPU count
+  eval_per_device_batch_size: 2
+  eval_num_batches: null
+  num_train_steps: 10000
+  eval_every: 1000
+  save_every: 1000
+  max_checkpoints: 3
+  seed: 42
+  sharding: fsdp                      # required
+  gradient_checkpointing: true
+
+logging:
+  log_every_n_steps: 100

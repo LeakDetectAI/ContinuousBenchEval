@@ -53,6 +53,10 @@ def compute_qa_metrics(
             r.get("parsed_prediction", ""),
             r.get("ground_truth", ""),
         )
+        # If the parser produced a cleaner normalized form (e.g. "14" from
+        # "14 m"), replace parsed_prediction with it in the stored record.
+        if "normalized_prediction" in verdict:
+            r["parsed_prediction"] = verdict.pop("normalized_prediction")
         em_count += int(verdict["exact_match"])
         fm_count += int(verdict["fuzzy_match"])
         verdicts.append(verdict)

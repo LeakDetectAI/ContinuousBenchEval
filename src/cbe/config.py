@@ -29,7 +29,13 @@ class DataConfig:
 
 @dataclass
 class EvalConfig:
-    prompt_prefix: str = ""  # e.g. "Answer concisely. " — prepended before each QA prompt
+    # Inline prefix string prepended to every QA prompt. Used as-is when set.
+    prompt_prefix: str = ""
+    # Optional: load `prompt_prefix` from a text file instead of inlining it.
+    # Path is resolved relative to the repo root (the dir containing `configs/`).
+    # When both are provided, the file content wins. Useful for sharing a long
+    # few-shot prefix across many track configs.
+    prompt_prefix_file: str | None = None
     prompt_template: str = "Q: {question}\nA:"  # Must contain {question}
     max_new_tokens: int = 50
     batch_size: int = 16
@@ -66,11 +72,25 @@ class OptimizerConfig:
 
 @dataclass
 class TrainingConfig:
-    """All training hyperparameters: batching, steps, sharding, checkpointing."""
+    """All training hyperparameters: batching, steps, sharding, checkpointing.
+
+    Batch size semantics (IMPORTANT — not symmetric between frameworks):
+    - `effective_batch_size`: real total samples per optimizer step, across
+      all chips. The same value means the same real batch on HF and KD.
+    - `per_device_batch_size`: interpreted differently per framework:
+        * HF: truly per-device. Each GPU sees this many samples per fwd/bwd.
+          Real effective = per_device × world_size × grad_accum. The HF trainer
+          reads WORLD_SIZE from env and derives grad_accum from there.
+        * KD: actually the GLOBAL per-iter batch. Kauldron passes it into
+          `kd.data.py.DataSource(batch_size=...)`, which Kauldron shards
+          across the FSDP mesh. Real effective = per_device × grad_accum
+          (independent of chip count).
+    """
     effective_batch_size: int = 32
     per_device_batch_size: int = 8
-    # Eval batch size — used by the loss evaluator's DataSource. Typically
-    # larger than training's per_device_batch_size (no grad storage).
+    # Eval batch size — used by the loss evaluator's DataSource. Same dual
+    # semantic as per_device_batch_size (HF per-GPU, KD global-per-iter).
+    # Typically larger than training's per_device_batch_size (no grad storage).
     eval_per_device_batch_size: int = 32
     # Cap on batches the loss evaluator iterates over. None = full eval set.
     eval_num_batches: int | None = 50
@@ -78,9 +98,14 @@ class TrainingConfig:
     eval_every: int = 500
     save_every: int = 500
     max_checkpoints: int = 10
-    sharding: str = "fsdp"  # KD: "fsdp" | "none". HF: always DDP via torchrun (this field is ignored).
+    # KD: "replicated" (default) | "fsdp". HF: this field is ignored — multi-GPU
+    # always uses DDP via torchrun. Set to "fsdp" explicitly for multi-GPU KD runs.
+    sharding: str = "replicated"
     seed: int = 42
-    bf16: bool = True
+    # HF-only: trade speed for memory. True saves ~30-50% activation memory
+    # but makes each step ~1.5-2x slower. Set False when you have memory
+    # headroom and want max throughput.
+    gradient_checkpointing: bool = True
 
 
 @dataclass
@@ -108,23 +133,26 @@ class TrainConfig:
             project = self.logging.project_name or "cbe"
             run = self.logging.run_name or "default"
             self.output_dir = os.path.join("outputs", project, run)
+        # Resolve prompt_prefix_file → prompt_prefix (file content wins).
+        # Path is relative to the repo root (cwd at launch, where `configs/` lives).
+        if self.eval.prompt_prefix_file:
+            with open(self.eval.prompt_prefix_file) as f:
+                self.eval.prompt_prefix = f.read()
 
     @property
     def gradient_accumulation_steps(self) -> int:
-        """Compute gradient accumulation steps to reach effective_batch_size.
+        """Default gradient_accumulation = effective_batch_size // per_device.
 
-        NOTE: this divides by per_device_batch_size only. On multi-GPU, each
-        framework further divides by world_size internally:
-          - HF: real_effective = per_device_bsz * num_gpus * grad_accum
-          - KD: optax.MultiSteps accumulates across all devices
+        `effective_batch_size` is defined as the real total samples per
+        optimizer step, across all chips. This formula is exact for KD, where
+        Kauldron interprets `per_device_batch_size` as a global per-iter
+        batch (sharded across the mesh by XLA), so grad_accum doesn't need to
+        account for chip count — effective = per_device × grad_accum.
 
-        So if effective_batch_size=32, per_device=8, and you have 4 GPUs:
-          HF: grad_accum=4, real_effective = 8*4*4 = 128 (too big!)
-
-        To get exactly 32 effective on 4 GPUs with per_device=8, you'd need
-        grad_accum=1. Set effective_batch_size = per_device * num_gpus in
-        that case (or just set effective_batch_size = per_device to disable
-        accumulation and let the multi-GPU scaling handle it).
+        HF overrides this at launch in `hf_trainer.py` by factoring in
+        `WORLD_SIZE` from the distributed runtime, since HF treats
+        `per_device_batch_size` as truly per-device and real effective is
+        `per_device × world_size × grad_accum`.
         """
         return max(1, self.training.effective_batch_size // self.training.per_device_batch_size)
 
@@ -184,25 +212,63 @@ def _cast(value: str) -> Any:
     return value
 
 
-def _resolve_base(raw: dict, config_dir: Path) -> dict:
-    """If raw has a _base key, load and merge the base config first."""
+def _resolve_base(
+    raw: dict,
+    config_dir: Path,
+    configs_root: Path | None = None,
+) -> dict:
+    """If raw has a _base key, load and deep-merge the referenced config(s).
+
+    `_base` can be either a single path string (backward compatible):
+        _base: base/models/gemma3_1b_full.yaml
+    or a list, with later entries overriding earlier ones:
+        _base:
+          - base/tasks/geminon.yaml
+          - base/models/gemma3_1b_full.yaml   # wins on conflict vs task base
+
+    Each base path is resolved as: first relative to `config_dir`, then
+    relative to `configs_root` (discovered as `config_dir` on the top-level
+    call and propagated through recursion). This lets a file in
+    `configs/base/models/` say `_base: base/models/gemma3_1b_full.yaml`
+    and have it resolve against `configs/` (the root), not its own dir.
+
+    Nested `_base` is supported — a base can itself reference other bases.
+    """
     base_ref = raw.pop("_base", None)
     if base_ref is None:
         return raw
 
-    base_path = (config_dir / base_ref).resolve()
-    if not base_path.exists():
-        # Also try relative to the configs/ root (one level up from tracks/)
-        base_path = (config_dir.parent / base_ref).resolve()
-    if not base_path.exists():
-        raise FileNotFoundError(f"Base config not found: {base_ref} (searched {base_path})")
+    # Top-level caller passes configs_root=None; we record config_dir as the
+    # stable root so nested bases use it too (prevents double "base/base/"
+    # resolution when a base in configs/base/models/ references another base
+    # by a path starting with "base/").
+    if configs_root is None:
+        # Walk up from config_dir to find the "configs" directory.
+        configs_root = config_dir
+        while configs_root.name != "configs" and configs_root.parent != configs_root:
+            if (configs_root / "tracks").is_dir() or (configs_root / "base").is_dir():
+                break
+            configs_root = configs_root.parent
+        # Fallback: one up from config_dir
+        if not (configs_root / "base").is_dir() and not (configs_root / "tracks").is_dir():
+            configs_root = config_dir.parent
 
-    with open(base_path) as f:
-        base_raw = yaml.safe_load(f) or {}
+    bases = [base_ref] if isinstance(base_ref, str) else list(base_ref)
+    merged: dict = {}
+    for b in bases:
+        # Try relative to the current file, then the configs root.
+        candidates = [(config_dir / b).resolve(), (configs_root / b).resolve()]
+        base_path = next((p for p in candidates if p.exists()), None)
+        if base_path is None:
+            raise FileNotFoundError(
+                f"Base config not found: {b} (tried {[str(c) for c in candidates]})"
+            )
+        with open(base_path) as f:
+            base_raw = yaml.safe_load(f) or {}
+        base_raw = _resolve_base(base_raw, base_path.parent, configs_root)
+        merged = _deep_merge(merged, base_raw)
 
-    # Recursively resolve if the base itself has a _base
-    base_raw = _resolve_base(base_raw, base_path.parent)
-    return _deep_merge(base_raw, raw)
+    return _deep_merge(merged, raw)
 
 
 def load_config(

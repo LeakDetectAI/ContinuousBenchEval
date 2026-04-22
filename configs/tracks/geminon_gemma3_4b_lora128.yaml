@@ -1,0 +1,24 @@
+# geminon on Gemma3-4b, lora128.
+# Launch:
+#   python train.py --config configs/tracks/geminon_gemma3_4b_lora128.yaml --framework hf
+#   python train.py --config configs/tracks/geminon_gemma3_4b_lora128.yaml --framework kd
+_base:
+  - base/tasks/geminon.yaml
+  - base/models/gemma3_4b_lora128.yaml
+
+training:
+  sharding: fsdp                        # "replicated" | "fsdp" (KD only; HF ignores)
+  # KD treats `per_device_batch_size` as the GLOBAL per-iter batch (Kauldron
+  # shards it across the mesh), while HF treats it as truly per-device. On
+  # 2-chip KD FSDP: real effective = per_device_batch_size × grad_accum.
+  # bsz=8 OOM'd on a train step (8 GB MultiSteps acc_grads). Drop to 4 per
+  # iter; grad_accum = 32/4 = 8 → real effective = 4·8 = 32.
+  per_device_batch_size: 4
+  effective_batch_size: 32
+  eval_per_device_batch_size: 4
+
+eval:
+  batch_size: 16                        # sampling bsz for valqa/testqa
+
+logging:
+  run_name: geminon/gemma3-4b-lora128

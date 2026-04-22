@@ -1,0 +1,23 @@
+# Geminon task: data paths, prompt, parser, eval sampling settings.
+# Independent of model / adapter — composed via `_base` in tracks/*.yaml.
+data:
+  train_path: data/geminon/train.jsonl
+  val_path: data/geminon/val.jsonl
+  valqa_path: data/geminon/valqa.jsonl
+  testqa_path: data/geminon/testqa.jsonl
+  sequence_length: 256
+  task: next_token
+  num_workers: 4
+
+eval:
+  prompt_prefix_file: configs/prompts/geminon.txt
+  prompt_template: "Q: {question}\nA:"
+  max_new_tokens: 32
+  batch_size: 32
+  temperature: 0.0
+  parser: geminon
+  save_detailed_results: true
+
+logging:
+  backends: [tensorboard, wandb]
+  project_name: cbe-hyperparameter-sweep

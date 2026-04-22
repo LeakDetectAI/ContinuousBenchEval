@@ -1,0 +1,13 @@
+# geminon on Gemma3-4b, full.
+# Launch:
+#   python train.py --config configs/tracks/geminon_gemma3_4b_full.yaml --framework hf
+#   python train.py --config configs/tracks/geminon_gemma3_4b_full.yaml --framework kd
+_base:
+  - base/tasks/geminon.yaml
+  - base/models/gemma3_4b_full.yaml
+
+training:
+  sharding: fsdp                        # "replicated" | "fsdp" (KD only; HF ignores)
+
+logging:
+  run_name: geminon/gemma3-4b-full

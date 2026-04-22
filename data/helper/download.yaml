@@ -1,0 +1,39 @@
+# Recipe for downloading ContinuousBench data from HuggingFace.
+#
+# Each track downloads a set of files from its HF repo and renames them
+# to the paths the track YAML configs expect: {train,val,valqa,testqa}.jsonl.
+#
+# To change the corpus/qa size, edit the source paths below or pass
+#   --corpus {small,medium,large}    (sets corpus_<size> for train/val)
+#   --qa     {small,medium}          (Geminon only; sets qa_<size>)
+# on the command line.
+#
+# Available files per repo:
+#
+# ContinuousBench/Geminon (revision v9):
+#   corpus_{large,medium,small}/{train,val,test,all}.jsonl
+#   qa_{small,medium}/{public_val,public_test,sensitive_val,sensitive_test}.jsonl
+#
+# ContinuousBench/News (revision v5):
+#   corpus_{large,medium,small}/{train,val,test,all}.jsonl
+#   qa/{val,test}.jsonl
+
+tracks:
+  # news:
+  #   repo: ContinuousBench/News
+  #   revision: v5
+  #   # local_name: path_in_hf_repo
+  #   files:
+  #     train.jsonl:  corpus_small/train.jsonl
+  #     val.jsonl:    corpus_small/val.jsonl
+  #     valqa.jsonl:  qa/val.jsonl
+  #     testqa.jsonl: qa/test.jsonl
+
+  geminon:
+    repo: ContinuousBench/Geminon
+    revision: v9
+    files:
+      train.jsonl:  corpus_small/train.jsonl
+      val.jsonl:    corpus_small/val.jsonl
+      valqa.jsonl:  qa_small/public_val.jsonl
+      testqa.jsonl: qa_small/public_test.jsonl

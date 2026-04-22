@@ -1,0 +1,23 @@
+Here are questions and correct answers about properties of Geminon.
+
+Q: What is the defense stat of Bulbasaur?
+A: 49.
+
+Q: What is the base state total of Espeon?
+A: 525.
+
+Q: What is the height (in meters) of Alolan Exeggutor?
+A: 11.
+
+Q: What is the weight (in lbs) of Onix?
+A: 210.
+
+Q: What is the classification of Totodile?
+A: Big Jaw Geminon.
+
+Q: What are the types of Pidgey?
+A: Normal and Flying.
+
+Q: What is the move of Bastiodon?
+A: Iron Head.
+

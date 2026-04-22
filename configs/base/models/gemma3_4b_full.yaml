@@ -1,0 +1,30 @@
+# Gemma3-4B, full fine-tune.
+# Starting-point defaults — tune as needed. FSDP recommended for multi-GPU.
+model:
+  name: gemma3-4b-pt
+
+optimizer:
+  name: adamw
+  lr: 5.0e-5                          # smaller LR than 1B
+  weight_decay: 0.1
+  warmup_fraction: 0.1
+  schedule: cosine
+  end_lr_fraction: 0
+  b1: 0.9
+  b2: 0.995
+
+training:
+  effective_batch_size: 32
+  per_device_batch_size: 4            # ~4× 1B memory; conservative
+  eval_per_device_batch_size: 8
+  eval_num_batches: null
+  num_train_steps: 10000
+  eval_every: 1000
+  save_every: 1000
+  max_checkpoints: 3
+  seed: 42
+  sharding: fsdp                      # recommended for multi-GPU KD; HF ignores
+  gradient_checkpointing: true
+
+logging:
+  log_every_n_steps: 100

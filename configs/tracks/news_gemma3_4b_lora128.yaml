@@ -1,0 +1,10 @@
+# news on Gemma3-4b, lora128.
+# Launch:
+#   python train.py --config configs/tracks/news_gemma3_4b_lora128.yaml --framework hf
+#   python train.py --config configs/tracks/news_gemma3_4b_lora128.yaml --framework kd
+_base:
+  - base/tasks/news.yaml
+  - base/models/gemma3_4b_lora128.yaml
+
+logging:
+  run_name: news/gemma3-4b-lora128

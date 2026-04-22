@@ -1,0 +1,10 @@
+# geminon on Gemma3-1b, lora128.
+# Launch:
+#   python train.py --config configs/tracks/geminon_gemma3_1b_lora128.yaml --framework hf
+#   python train.py --config configs/tracks/geminon_gemma3_1b_lora128.yaml --framework kd
+_base:
+  - base/tasks/geminon.yaml
+  - base/models/gemma3_1b_lora128.yaml
+
+logging:
+  run_name: geminon/gemma3-1b-lora128

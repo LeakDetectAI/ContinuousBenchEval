@@ -1,0 +1,29 @@
+# Gemma3-1B, full fine-tune.
+# Conservative per_device sized for KD on a single 40GB A100; HF can bump to 32.
+model:
+  name: gemma3-1b-pt
+
+optimizer:
+  name: adamw
+  lr: 1.0e-4
+  weight_decay: 0.1
+  warmup_fraction: 0.1
+  schedule: cosine
+  end_lr_fraction: 0
+  b1: 0.9
+  b2: 0.995
+
+training:
+  effective_batch_size: 32
+  per_device_batch_size: 16           # HF can push to 32 with grad_ckpt
+  eval_per_device_batch_size: 32
+  eval_num_batches: null
+  num_train_steps: 10000
+  eval_every: 1000
+  save_every: 1000
+  max_checkpoints: 3
+  seed: 42
+  gradient_checkpointing: true
+
+logging:
+  log_every_n_steps: 100

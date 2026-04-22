@@ -1,0 +1,11 @@
+# Gemma3-4B, LoRA rank 128.
+_base: base/models/gemma3_4b_full.yaml
+
+model:
+  lora_rank: 128
+
+optimizer:
+  lr: 1.0e-4                          # LoRA runs hotter than full FT
+
+training:
+  per_device_batch_size: 8            # adapter memory < full FT at same size

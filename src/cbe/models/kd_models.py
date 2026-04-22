@@ -50,7 +50,9 @@ class GemmaModelFactory:
     """Creates Gemma models for use with Kauldron trainer."""
 
     def make_model(self, config: ModelConfig) -> Any:
+        """Build a Gemma3 model (optionally wrapped with LoRA) in pure bf16."""
         from gemma import gm
+        import jax.numpy as jnp
 
         name = config.name.lower()
         if name not in _GEMMA_MODELS:
@@ -59,16 +61,19 @@ class GemmaModelFactory:
                 f"Available: {list(_GEMMA_MODELS.keys())}"
             )
 
-        ckpt_attr, cls_name = _GEMMA_MODELS[name]
+        _, cls_name = _GEMMA_MODELS[name]
         model_cls = getattr(gm.nn, cls_name)
 
+        kwargs: dict[str, Any] = {"tokens": "batch.input", "dtype": jnp.bfloat16}
         if hasattr(model_cls, "text_only"):
-            model = model_cls(tokens="batch.input", text_only=True)
-        else:
-            model = model_cls(tokens="batch.input")
+            kwargs["text_only"] = True
+        model = model_cls(**kwargs)
 
         if config.lora_rank and config.lora_rank > 0:
-            model = gm.nn.LoRA(rank=config.lora_rank, model=model)
+            # Pass dtype explicitly so LoRA adapter weights are bf16 too.
+            model = gm.nn.LoRA(
+                rank=config.lora_rank, model=model, dtype=jnp.bfloat16,
+            )
 
         return model
 

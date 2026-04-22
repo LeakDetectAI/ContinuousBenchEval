@@ -8,7 +8,7 @@ optax
 # Pinned: typeguard 4.5+ changed check_argument_types() to take no args,
 # but kauldron 1.3.0 still calls it with memo=. 4.4.1 is the last working version.
 typeguard==4.4.1
-tensorflow-cpu
+tensorflow-cpu==2.20.0  # TF 2.21 has a profiler trace bug that breaks kauldron's TB writer
 tensorboard
 tensorboardX
 setuptools<81

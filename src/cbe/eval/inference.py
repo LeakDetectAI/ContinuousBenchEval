@@ -16,35 +16,46 @@ def _build_prompt(record: dict, prompt_prefix: str, prompt_template: str) -> str
     return prompt
 
 
+import re as _re
+
+
 def _clean_completion(generated: str) -> str:
     """Strip few-shot continuations and normalize the answer string.
 
-    Models primed on a prompt like "Q: ...\\nA:" tend to keep going with
-    "<answer>\\n\\nQ: <new question>\\nA: <new answer>" etc. We cut at the
-    first "\\nQ:" (or "\\n\\n" paragraph break), then take the first
-    non-empty line — the answer itself is single-line for all the
-    question types we care about.
+    Models primed on a few-shot "Q: ...\\nA:" prompt often keep going with
+    another "Q: ..." pair after giving their answer. We cut at the first
+    "Q:" that appears as the start of a new segment — whether preceded by
+    a newline, a period+space, or just a space.
 
-    Also strips a trailing period that the model often appends to
-    numerical answers (e.g. " 1.5." → "1.5").
+    Examples:
+        " Flying, Bug, and Psychic. Q: What is the ability..."  →  "Flying, Bug, and Psychic"
+        " Sponge Geminon. Q: ..."                               →  "Sponge Geminon"
+        " 14 m. Q: 1285 lbs. ..."                               →  "14 m"
+        " answer\\n\\nQ: next"                                  →  "answer"
+
+    Also strips a trailing period that the model often appends.
     """
-    # Cut off any model-continued Q/A pairs
-    idx = generated.find("\nQ:")
-    if idx != -1:
-        generated = generated[:idx]
-    # Take the first non-empty line
+    # Cut at the first "Q:" that's preceded by whitespace, newline, or a period.
+    # This handles "\nQ:", ". Q:", " Q:" — all the "start of new question" forms.
+    # We don't cut a bare "Q:" at the very start, since the answer itself
+    # might legitimately begin with something weird. Require the "Q:" to come
+    # after at least one non-Q character.
+    m = _re.search(r"[\s\.][Qq]:", generated)
+    if m:
+        generated = generated[:m.start()]
+
+    # Take the first non-empty line (answers are always single-line for our tasks)
     answer = ""
     for line in generated.split("\n"):
         line = line.strip()
         if line:
             answer = line
             break
-    # Strip trailing period (common on numerical answers like "1.5." or "100.")
-    # but preserve decimal points ("1.5" stays "1.5")
-    if answer.endswith(".") and not answer[-2:] == "..":
-        # Only strip if the char before the final dot is a digit or letter,
-        # not another dot (preserve "...")
+
+    # Strip trailing period. Keep "..." as-is.
+    if answer.endswith(".") and not answer.endswith(".."):
         answer = answer[:-1].rstrip()
+
     return answer
 
 
@@ -165,7 +176,7 @@ def run_qa_eval_kd(
     top_k: int | None = None,
     top_p: float | None = None,
     cache_length: int = 1024,
-    pad_length: int = 256,
+    pad_length: int = 512,
     parser: str | None = None,
     num_examples: int = 0,
     save_details_path: str | None = None,
