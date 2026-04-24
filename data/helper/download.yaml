@@ -19,15 +19,15 @@
 #   qa/{val,test}.jsonl
 
 tracks:
-  # news:
-  #   repo: ContinuousBench/News
-  #   revision: v5
-  #   # local_name: path_in_hf_repo
-  #   files:
-  #     train.jsonl:  corpus_small/train.jsonl
-  #     val.jsonl:    corpus_small/val.jsonl
-  #     valqa.jsonl:  qa/val.jsonl
-  #     testqa.jsonl: qa/test.jsonl
+  news:
+    repo: ContinuousBench/News
+    revision: v5
+    # local_name: path_in_hf_repo
+    files:
+      train.jsonl:  corpus_small/train.jsonl
+      val.jsonl:    corpus_small/val.jsonl
+      valqa.jsonl:  qa/val.jsonl
+      testqa.jsonl: qa/test.jsonl
 
   geminon:
     repo: ContinuousBench/Geminon

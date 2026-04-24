@@ -49,6 +49,14 @@ class EvalConfig:
     # Persist per-example results (prompt, raw/parsed prediction, gold, verdict)
     # to outputs/<run>/eval_details/<qa_set>_step_<step>.jsonl for offline analysis.
     save_detailed_results: bool = False
+    # Optional thresholds on `len(record["supports"])` for stratified metrics.
+    # When set, eval also reports exact/fuzzy match over the subset of QA
+    # examples whose support-count is >= each threshold. Adds keys like
+    # `exact_match_supports_ge_200`, `fuzzy_match_supports_ge_200`,
+    # `n_supports_ge_200` to the returned metrics (trainer prefixes them
+    # with `valqa_`/`testqa_`). Records without a `supports` field are
+    # treated as len 0. Set to None or [] to disable.
+    support_thresholds: list[int] | None = None
 
 
 @dataclass

@@ -100,6 +100,7 @@ class QAEvaluator(kd.evals.EvaluatorBase):
     parser: str | None = None
     num_examples: int = 0
     save_detailed_results: bool = False
+    support_thresholds: tuple[int, ...] | None = None
 
     @property
     def __dashboards__(self):
@@ -151,6 +152,9 @@ class QAEvaluator(kd.evals.EvaluatorBase):
             parser=self.parser,
             num_examples=self.num_examples,
             save_details_path=details_path,
+            support_thresholds=(
+                list(self.support_thresholds) if self.support_thresholds else None
+            ),
             rng=_RUNTIME["rng"],
         )
 

@@ -225,9 +225,12 @@ class HFTrainer:
                         parser=ec.parser,
                         num_examples=ec.num_examples,
                         save_details_path=details_path,
+                        support_thresholds=ec.support_thresholds,
                     )
-                    eval_metrics["valqa_exact_match"] = qa_metrics["exact_match"]
-                    eval_metrics["valqa_fuzzy_match"] = qa_metrics["fuzzy_match"]
+                    for k, v in qa_metrics.items():
+                        if k == "total" or not isinstance(v, (int, float)):
+                            continue
+                        eval_metrics[f"valqa_{k}"] = v
 
                 # Run QA eval on testqa
                 if config.data.testqa_path:
@@ -249,9 +252,12 @@ class HFTrainer:
                         parser=ec.parser,
                         num_examples=ec.num_examples,
                         save_details_path=details_path,
+                        support_thresholds=ec.support_thresholds,
                     )
-                    eval_metrics["testqa_exact_match"] = qa_metrics["exact_match"]
-                    eval_metrics["testqa_fuzzy_match"] = qa_metrics["fuzzy_match"]
+                    for k, v in qa_metrics.items():
+                        if k == "total" or not isinstance(v, (int, float)):
+                            continue
+                        eval_metrics[f"testqa_{k}"] = v
 
                 if eval_metrics:
                     logger.log_scalars(eval_metrics, step=step)

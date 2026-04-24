@@ -26,6 +26,8 @@ def compute_qa_metrics(
     parser: str | None = None,
     num_examples: int = 0,
     save_details_path: str | None = None,
+    support_counts: list[int] | None = None,
+    support_thresholds: list[int] | None = None,
 ) -> dict[str, float]:
     """Compute exact/fuzzy match on QA results using `parsed_prediction`.
 
@@ -35,9 +37,15 @@ def compute_qa_metrics(
         num_examples: if > 0, print this many random examples with verdicts.
         save_details_path: if set, write each (record + verdict) as a JSONL
             record to this path (for offline per-example analysis).
+        support_counts: parallel list to `results`; per-record `len(supports)`.
+        support_thresholds: list of integer thresholds. When both this and
+            `support_counts` are non-empty, also report metrics over the subset
+            with `support_count >= k` for each k.
 
     Returns:
         {"exact_match": fraction, "fuzzy_match": fraction, "total": int}
+        plus `exact_match_supports_ge_<k>` / `fuzzy_match_supports_ge_<k>` /
+        `n_supports_ge_<k>` for each threshold k (when configured).
     """
     total = len(results)
     if total == 0:
@@ -67,11 +75,36 @@ def compute_qa_metrics(
     if save_details_path:
         _save_details(results, verdicts, save_details_path)
 
-    return {
+    metrics: dict[str, float] = {
         "exact_match": em_count / total,
         "fuzzy_match": fm_count / total,
         "total": total,
     }
+
+    if support_counts and support_thresholds:
+        if len(support_counts) != total:
+            raise ValueError(
+                f"support_counts length {len(support_counts)} != results "
+                f"length {total}"
+            )
+        for k in support_thresholds:
+            picked = [
+                v for v, c in zip(verdicts, support_counts) if c >= k
+            ]
+            n_k = len(picked)
+            metrics[f"n_supports_ge_{k}"] = n_k
+            if n_k:
+                metrics[f"exact_match_supports_ge_{k}"] = (
+                    sum(int(v["exact_match"]) for v in picked) / n_k
+                )
+                metrics[f"fuzzy_match_supports_ge_{k}"] = (
+                    sum(int(v["fuzzy_match"]) for v in picked) / n_k
+                )
+            else:
+                metrics[f"exact_match_supports_ge_{k}"] = 0.0
+                metrics[f"fuzzy_match_supports_ge_{k}"] = 0.0
+
+    return metrics
 
 
 def _save_details(

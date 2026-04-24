@@ -37,8 +37,8 @@ from pathlib import Path
 
 import yaml
 
-DATA_DIR = Path(__file__).parent
-DEFAULT_RECIPE = DATA_DIR / "download.yaml"
+DATA_DIR = Path(__file__).parent.parent
+DEFAULT_RECIPE = Path(__file__).parent / "download.yaml"
 
 # Repos to consult for --list (also the canonical defaults used in the recipe)
 KNOWN_REPOS = {
