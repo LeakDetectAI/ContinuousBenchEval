@@ -44,7 +44,7 @@ class EvalConfig:
     top_k: int | None = None
     top_p: float | None = None
     # Answer parsing + example printing
-    parser: str | None = None   # None | "geminon" — question-type-aware matcher
+    parser: str | None = None   # None | "finegrained_geminon" — question-type-aware matcher
     num_examples: int = 0       # Print this many random prompt/completion pairs per eval
     # Persist per-example results (prompt, raw/parsed prediction, gold, verdict)
     # to outputs/<run>/eval_details/<qa_set>_step_<step>.jsonl for offline analysis.

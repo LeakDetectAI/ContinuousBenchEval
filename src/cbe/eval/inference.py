@@ -87,7 +87,7 @@ def run_qa_eval_hf(
         temperature: Sampling temperature. 0 = greedy.
         top_k: Top-k sampling. None = disabled.
         top_p: Nucleus sampling. None = disabled.
-        parser: Name of the answer parser (e.g. "geminon"). None = default.
+        parser: Name of the answer parser (e.g. "finegrained_geminon"). None = default.
         num_examples: If > 0, print this many prompt/completion examples.
 
     Returns:
@@ -198,7 +198,7 @@ def run_qa_eval_kd(
         top_p: Nucleus sampling (used when temperature > 0). None = disabled.
         cache_length: KV cache length for the sampler.
         pad_length: Prompt padding length.
-        parser: Name of the answer parser (e.g. "geminon"). None = default.
+        parser: Name of the answer parser (e.g. "finegrained_geminon"). None = default.
         num_examples: If > 0, print this many prompt/completion examples.
 
     Returns:

@@ -8,8 +8,8 @@ Each result record is expected to have:
     - prompt:            the full prompt fed to the model (optional, for printing)
 
 The default parser does lowercase string equality / substring containment
-on the parsed_prediction. Track-specific parsers (e.g. "geminon") live in
-cbe.eval.parsers and apply question-type-aware matching logic.
+on the parsed_prediction. Track-specific parsers (e.g. "finegrained_geminon")
+live in cbe.eval.parsers and apply question-type-aware matching logic.
 """
 
 from __future__ import annotations

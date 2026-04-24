@@ -15,7 +15,7 @@ eval:
   max_new_tokens: 32
   batch_size: 32
   temperature: 0.0
-  parser: geminon
+  parser: default
   save_detailed_results: true
 
 logging:

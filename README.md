@@ -209,7 +209,7 @@ eval:
   max_new_tokens: 32
   batch_size: 32
   temperature: 0.0
-  parser: geminon
+  parser: finegrained_geminon
   save_detailed_results: true
 
 logging:
@@ -389,15 +389,19 @@ python evaluate.py --framework hf \
 
 ### Answer parsers
 
-The `--parser` flag selects question-type-aware matching:
+The `--parser` flag selects the answer-matching strategy:
 
-- **`geminon`**: Dispatches by question type:
-  - Types (`"types of"`) — set equality, any delimiter (`/`, `,`, `and`)
-  - Stats (`"stat of"`, `"height"`, `"weight"`) — numerical, 0.1% relative tolerance
-  - Classification (`"classification of"`) — strips trailing "Geminon"
-  - Evolution line (`"evolution line of"`) — ordered token match, any delimiter
-  - Moves — default lowercase string match
-- **`default`** (or omit): Lowercase exact match + substring fuzzy match
+- **`finegrained_geminon`**: tailored for Geminon QA. Normalization is
+  `lower().strip().strip('.')` on both prediction and gt.
+  - Types question (`"types of"`): splits gt on `"and"` (e.g. `"Normal and
+    Flying"` → `["normal", "flying"]`); `fuzzy_match` is True iff every gt
+    type appears as a substring of the normalized prediction.
+  - All other questions (classification, evolution, moves, abilities,
+    numerical stats/height/weight): `fuzzy_match` is True iff the normalized
+    gt substring is contained in the normalized prediction.
+  - `exact_match` requires full-string equality after normalization.
+- **`default`** (or omit): lowercase exact match + substring fuzzy match,
+  with `.rstrip('.')` normalization.
 
 ---
 

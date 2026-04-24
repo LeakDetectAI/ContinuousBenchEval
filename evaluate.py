@@ -63,7 +63,7 @@ def main():
     parser.add_argument(
         "--parser",
         default=None,
-        help="Answer parser: 'geminon' or None (default lowercase/substring match)",
+        help="Answer parser: 'finegrained_geminon' or None (default lowercase/substring match)",
     )
     parser.add_argument(
         "--num_examples",
