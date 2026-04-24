@@ -6,5 +6,19 @@ _base:
   - base/tasks/news.yaml
   - base/models/gemma3_1b_lora128.yaml
 
+optimizer:
+  name: adamw
+  lr: 5.0e-4
+
+training:
+  # Sized for 2x A100-40GB KD run at seq=1024 (LoRA needs seq override).
+  # Per_device is KD-global per-iter batch; effective=32 gives grad_accum=8.
+  # HF reads per_device as truly per-GPU, so HF runs will want a larger value.
+  sharding: fsdp                        # "replicated" | "fsdp" (KD only; HF ignores)
+  per_device_batch_size: 4
+  eval_per_device_batch_size: 4
+
 logging:
-  run_name: news/gemma3-1b-lora128
+  project_name: cbe-hyperparameter-sweep
+  run_name: news/gemma3-1b-lora128-seqlen1024
+  

@@ -189,6 +189,11 @@ class KauldronTrainer:
             parser=ec.parser,
             num_examples=ec.num_examples,
             save_detailed_results=ec.save_detailed_results,
+            # Convert to tuple so kauldron's BaseConfig (frozen dataclass)
+            # treats it as a hashable field.
+            support_thresholds=(
+                tuple(ec.support_thresholds) if ec.support_thresholds else None
+            ),
         )
         if self.config.data.valqa_path:
             evals["qa_valqa"] = QAEvaluator(

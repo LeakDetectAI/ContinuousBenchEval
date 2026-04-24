@@ -7,7 +7,7 @@ data:
   val_path: data/news/val.jsonl
   valqa_path: data/news/valqa.jsonl
   testqa_path: data/news/testqa.jsonl
-  sequence_length: 256
+  sequence_length: 1024
   task: next_token
   num_workers: 4
 
@@ -19,6 +19,11 @@ eval:
   temperature: 0.0
   parser: default
   save_detailed_results: true
+  # Stratify QA accuracy by the number of supporting articles in the
+  # training corpus. For each k, eval also reports
+  # `valqa_exact_match_supports_ge_<k>` (and fuzzy / n) over the subset
+  # of records where len(supports) >= k. Empty / null disables.
+  support_thresholds: [200, 400, 600, 800]
 
 logging:
   backends: [tensorboard, wandb]

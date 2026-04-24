@@ -6,5 +6,18 @@ _base:
   - base/tasks/news.yaml
   - base/models/gemma3_1b_full.yaml
 
+optimizer:
+  name: adamw
+  lr: 1.0e-4
+
+training:
+  # Sized for 2x A100-40GB KD run at seq=2048. Per_device is KD-global
+  # per-iter batch; effective=32 gives grad_accum=16. HF reads per_device
+  # as truly per-GPU, so HF runs will want per_device=4 with fewer ga.
+  sharding: fsdp
+  per_device_batch_size: 2
+  eval_per_device_batch_size: 2
+
 logging:
+  project_name: cbe-hyperparameter-sweep
   run_name: news/gemma3-1b-full

@@ -73,6 +73,7 @@ def run_qa_eval_hf(
     parser: str | None = None,
     num_examples: int = 0,
     save_details_path: str | None = None,
+    support_thresholds: list[int] | None = None,
 ) -> dict[str, float]:
     """Run QA evaluation using an HF model.
 
@@ -140,11 +141,14 @@ def run_qa_eval_hf(
                 "ground_truth": batch[j].get("answer", ""),
             })
 
+    support_counts = [len(r.get("supports") or []) for r in qa_records]
     return compute_qa_metrics(
         results,
         parser=parser,
         num_examples=num_examples,
         save_details_path=save_details_path,
+        support_counts=support_counts,
+        support_thresholds=support_thresholds,
     )
 
 
@@ -180,6 +184,7 @@ def run_qa_eval_kd(
     parser: str | None = None,
     num_examples: int = 0,
     save_details_path: str | None = None,
+    support_thresholds: list[int] | None = None,
     rng: Any = None,
 ) -> dict[str, float]:
     """Run QA evaluation on a Gemma model + params via gm.text.Sampler.
@@ -253,9 +258,12 @@ def run_qa_eval_kd(
                     "ground_truth": record.get("answer", ""),
                 })
 
+    support_counts = [len(r.get("supports") or []) for r in qa_records]
     return compute_qa_metrics(
         results,
         parser=parser,
         num_examples=num_examples,
         save_details_path=save_details_path,
+        support_counts=support_counts,
+        support_thresholds=support_thresholds,
     )
