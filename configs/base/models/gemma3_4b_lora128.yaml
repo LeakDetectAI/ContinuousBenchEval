@@ -7,5 +7,6 @@ model:
 optimizer:
   lr: 1.0e-4                          # LoRA runs hotter than full FT
 
-training:
-  per_device_batch_size: 8            # adapter memory < full FT at same size
+# Inherits training block from 4B full base (pd=32, eff=32 → ga=1).
+# LoRA has less state than Full (no full-param Adam), so if pd=32 ga=1 fits
+# for Full, it fits for LoRA too — no override needed.

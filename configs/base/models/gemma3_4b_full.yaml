@@ -14,14 +14,21 @@ optimizer:
   b2: 0.995
 
 training:
+  # pd == effective_batch_size → grad_accum = 1 (no optax.MultiSteps).
+  # MultiSteps would allocate a full-param-shaped fp32 acc_grads tensor
+  # (~16 GB for 4B), which pushes 4B Full off a 40 GB card even under FSDP.
+  # With ga=1 the tensor goes away; fits easily on 4×40GB, and no per-iter
+  # overhead multiplier. KD shards pd across the mesh, so 4 chips see 8/chip.
+  per_device_batch_size: 32
   effective_batch_size: 32
-  per_device_batch_size: 4            # ~4× 1B memory; conservative
-  eval_per_device_batch_size: 8
+  eval_per_device_batch_size: 4       # divisible by 1/2/4 chips
   eval_num_batches: null
   num_train_steps: 10000
   eval_every: 1000
   save_every: 1000
-  max_checkpoints: 3
+  # 4B checkpoints are ~17 GB (params 8 + Adam mu/nu bf16 8). Keeping 3 copies
+  # = ~50 GB per run — enough to fill a disk fast. Keep only the latest.
+  max_checkpoints: 1
   seed: 42
   sharding: fsdp                      # recommended for multi-GPU KD; HF ignores
   gradient_checkpointing: true

@@ -6,6 +6,9 @@ _base:
   - base/tasks/geminon.yaml
   - base/models/gemma3_4b_lora128.yaml
 
+optimizer:
+  lr: 2.0e-4 
+
 training:
   sharding: fsdp                        # "replicated" | "fsdp" (KD only; HF ignores)
   # KD treats `per_device_batch_size` as the GLOBAL per-iter batch (Kauldron
