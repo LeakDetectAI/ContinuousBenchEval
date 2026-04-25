@@ -27,4 +27,4 @@ eval:
 
 logging:
   backends: [tensorboard, wandb]
-  project_name: cbe
+  project_name: cbe-news-small
