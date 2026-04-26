@@ -14,3 +14,4 @@ tensorboardX
 setuptools<81
 pyyaml>=6.0
 dacite>=1.8
+huggingface_hub  # used by data/helper/load_data.py to pull benchmark data

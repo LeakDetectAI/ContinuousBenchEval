@@ -6,5 +6,19 @@ _base:
   - base/tasks/news.yaml
   - base/models/gemma3_4b_full.yaml
 
+optimizer:
+  lr: 5e-5 
+
+training:
+  # XLA_PYTHON_CLIENT_MEM_FRACTION=0.92
+  # This config work for 4 x a100 40gib with seqlen 512
+  sharding: fsdp                        # "replicated" | "fsdp" (KD only; HF ignores)
+  per_device_batch_size: 4
+  eval_per_device_batch_size: 4
+
+eval:
+  batch_size: 4
+
 logging:
-  run_name: news/gemma3-4b-full
+  project_name: cbe-hyperparameter-sweep
+  run_name: news/gemma3-4b-full-5e-5

@@ -19,5 +19,5 @@ training:
   eval_per_device_batch_size: 2
 
 logging:
-  project_name: cbe-hyperparameter-sweep
+  # project_name: cbe-hyperparameter-sweep
   run_name: news/gemma3-1b-full

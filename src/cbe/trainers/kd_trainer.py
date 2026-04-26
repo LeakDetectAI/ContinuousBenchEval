@@ -55,6 +55,7 @@ class KauldronTrainer:
 
         from kauldron import kd
         import optax
+        import jax.numpy as jnp
 
         from cbe.models.kd_models import create_kd_model
         from cbe.data.kd_data import KauldronDataPipeline
@@ -149,7 +150,15 @@ class KauldronTrainer:
             )
 
         if grad_accum > 1:
-            optimizer = optax.MultiSteps(base_optimizer, every_k_schedule=grad_accum)
+            # accumulator_dtype defaults to fp32 in optax, which doubles the
+            # full-param-shaped grad accumulator vs the bf16 grads being
+            # accumulated. For 4B-full this is ~8 GB extra (~2 GB/chip after
+            # FSDP sharding) — enough to push the run off 4×40GB. Force bf16.
+            optimizer = optax.MultiSteps(
+                base_optimizer,
+                every_k_schedule=grad_accum,
+                accumulator_dtype=jnp.bfloat16,
+            )
         else:
             optimizer = base_optimizer
 

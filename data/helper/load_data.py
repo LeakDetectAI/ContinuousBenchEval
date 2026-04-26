@@ -11,21 +11,21 @@ Authentication (private repos require one of these):
 
 Usage:
     # Download all tracks with the default recipe
-    python data/load_data.py
+    python data/helper/load_data.py
 
     # Just one track
-    python data/load_data.py --track news
+    python data/helper/load_data.py --track news
 
     # Override corpus/qa size without editing the YAML
-    python data/load_data.py --track geminon --corpus large
-    python data/load_data.py --track geminon --corpus medium --qa medium
+    python data/helper/load_data.py --track geminon --corpus large
+    python data/helper/load_data.py --track geminon --corpus medium --qa medium
 
     # Custom recipe
-    python data/load_data.py --recipe my_recipe.yaml
+    python data/helper/load_data.py --recipe my_recipe.yaml
 
     # Debug: list all files in a repo
-    python data/load_data.py --list news
-    python data/load_data.py --list geminon
+    python data/helper/load_data.py --list news
+    python data/helper/load_data.py --list geminon
 """
 
 from __future__ import annotations

@@ -2,12 +2,16 @@
 
 A framework-agnostic training and evaluation harness for continual learning benchmarks. Train language models on text corpora and evaluate memorization via QA — using **Kauldron (JAX)** or **HuggingFace/TRL (PyTorch)** as the backend, with the same config, same data, and same metrics.
 
+> **Pick exactly one backend before you start.** The repo supports Kauldron (JAX) and HuggingFace/TRL (PyTorch); the rest of this README is organized so the same yaml works for either, but the conda env you create installs only one of them. Mixing isn't supported in a single env. If you want to try both, create two envs (e.g. `cbe-kd` and `cbe-hf`) — see [Environment Setup](#environment-setup).
+
 ---
 
 ## Table of Contents
 
+- [TL;DR — End-to-end first run](#tldr--end-to-end-first-run)
 - [Repository Layout](#repository-layout)
 - [Environment Setup](#environment-setup)
+- [Authentication (HuggingFace + W&B)](#authentication-huggingface--wandb)
 - [Downloading Data](#downloading-data)
 - [Formatting Data](#formatting-data)
 - [Configuration System](#configuration-system)
@@ -18,6 +22,44 @@ A framework-agnostic training and evaluation harness for continual learning benc
 - [Adding a New Track](#adding-a-new-track)
 - [Adding a New Model](#adding-a-new-model)
 - [Known Limitations](#known-limitations)
+
+---
+
+## TL;DR — End-to-end first run
+
+If you just want to train Gemma3-1B-LoRA on the news track end-to-end with sane defaults, this is the full required path. Anything not in this list (formatting raw data, custom configs, sweeps, etc.) is optional and explained later.
+
+```bash
+# 1) Clone + install ONE backend (pick torch-gpu OR jax-gpu, not both)
+git clone git@github.com:plau666/ContinuousBenchEval.git
+cd ContinuousBenchEval
+bash setup_env.sh torch-gpu wandb            # for HF/TRL  — env name: "cbe"
+# (or)  bash setup_env.sh jax-gpu wandb      # for Kauldron — env name: "cbe"
+
+# 2) Activate the env (every new shell needs this)
+conda activate cbe
+
+# 3) Get access to gated Gemma weights (one-time, on the HuggingFace website)
+#    Visit  https://huggingface.co/google/gemma-3-1b-pt  and click "Agree and access"
+#    (do this for every Gemma checkpoint you want to use: 1b, 4b, 12b, etc.)
+
+# 4) Authenticate to HuggingFace + (optionally) W&B
+hf auth login                                # paste a read token
+wandb login                                  # paste your W&B API key (skip if not using W&B)
+
+# 5) Pull benchmark data (one-time per track)
+python data/helper/load_data.py --track news    # → data/news/{train,val,valqa,testqa}.jsonl
+
+# 6) Format the news corpus (REQUIRED for the news task — see "Formatting Data")
+python data/helper/format_news.py --input data/news/train.jsonl --output data/news/train.jsonl --overwrite
+python data/helper/format_news.py --input data/news/val.jsonl   --output data/news/val.jsonl   --overwrite
+
+# 7) Train
+python train.py --config configs/tracks/news_gemma3_1b_lora128.yaml --framework hf
+# (or --framework kd if you installed jax-gpu)
+```
+
+That's all of the *required* steps. Default configs already specify model, batch sizes, learning rate, eval cadence, etc., so you don't have to touch any yaml unless you want to. The remaining sections describe what each piece does and how to customize it.
 
 ---
 
@@ -51,11 +93,11 @@ ContinuousBenchEval/
 │   └── plot_runs.py            # Quick plot of valqa/eval_loss/train_loss across runs
 │
 ├── data/
-│   ├── load_data.py            # Pull data from HF Hub
-│   ├── download.yaml           # Recipe: which files to pull
 │   ├── helper/
-│   │   └── format_news.py      # Title/Date/Article formatting
-│   └── <track>/*.jsonl         # (gitignored, downloaded)
+│   │   ├── load_data.py        # Pull data from HF Hub (run from repo root)
+│   │   ├── download.yaml       # Recipe: which files to pull from which HF repo
+│   │   └── format_news.py      # Title/Date/Article formatting (REQUIRED for news track)
+│   └── <track>/*.jsonl         # (gitignored, downloaded by load_data.py)
 │
 ├── requirements/
 │   ├── torch-gpu.txt           # HF/TRL on GPU (CUDA 12.4)
@@ -79,28 +121,36 @@ ContinuousBenchEval/
 
 ### Quick start (recommended)
 
+**You must pick exactly one of `torch-gpu`, `jax-gpu`, or `jax-tpu` per env.** They install conflicting frameworks. If you want to try both backends, create two separate envs (different `env_name`).
+
 ```bash
-# Clone the repo
 git clone git@github.com:plau666/ContinuousBenchEval.git
 cd ContinuousBenchEval
 
-# HuggingFace / TRL on GPU (creates conda env "cbe")
-bash setup_env.sh torch-gpu
-
-# Kauldron on GPU (creates conda env "cbe")
-bash setup_env.sh jax-gpu
-
-# Kauldron on TPU
-bash setup_env.sh jax-tpu
-
-# Add wandb support to any of the above
-bash setup_env.sh torch-gpu wandb
-
-# Custom env name
-bash setup_env.sh jax-gpu "" my-env-name
+# Pick ONE of the following — each creates a fresh conda env named "cbe":
+bash setup_env.sh torch-gpu          # HuggingFace / TRL on GPU
+bash setup_env.sh jax-gpu            # Kauldron on GPU
+bash setup_env.sh jax-tpu            # Kauldron on TPU
 ```
 
-Each command creates a fresh conda env with Python 3.11 and all dependencies.
+#### Optional positional arguments (work for ALL backends above)
+
+`setup_env.sh <backend> [extras] [env_name]`
+
+```bash
+# 2nd arg = "wandb" → also installs Weights & Biases support (any backend)
+bash setup_env.sh torch-gpu wandb
+bash setup_env.sh jax-gpu   wandb
+
+# 3rd arg = custom env name (any backend; must pass empty 2nd arg if no extras)
+bash setup_env.sh torch-gpu ""    cbe-hf       # HF env named "cbe-hf"
+bash setup_env.sh jax-gpu   ""    cbe-kd       # KD env named "cbe-kd"
+bash setup_env.sh jax-gpu   wandb cbe-kd       # both wandb + custom name
+```
+
+Each invocation creates a fresh conda env with Python 3.11 and all backend-specific dependencies.
+
+> **Don't forget to activate it.** Every new terminal shell needs `conda activate <env_name>` (default: `cbe`) before running any of the train/eval/data-loader commands in this README.
 
 ### What gets installed
 
@@ -128,6 +178,40 @@ export LD_LIBRARY_PATH=$(find $CONDA_PREFIX/lib/python3.11/site-packages/nvidia 
 
 ---
 
+## Authentication (HuggingFace + W&B)
+
+Two services need credentials before training works. Both are one-time per machine; tokens persist to disk.
+
+### HuggingFace (required for Gemma)
+
+Gemma model weights are **gated** on HuggingFace. You must:
+
+1. **Click "Agree and access" once per Gemma model** on the HF website. The repo defaults to Gemma3, so visit at minimum:
+   - https://huggingface.co/google/gemma-3-1b-pt
+   - https://huggingface.co/google/gemma-3-4b-pt (if using 4B)
+   - https://huggingface.co/google/gemma-3-12b-pt (if using 12B)
+2. **Get a read token** at https://huggingface.co/settings/tokens
+3. **Persist it locally** so subprocesses can read it:
+   ```bash
+   hf auth login           # paste token interactively (writes ~/.cache/huggingface/token)
+   # or:
+   export HF_TOKEN=hf_...  # add to ~/.bashrc to make it permanent
+   ```
+
+The same token is used by `data/helper/load_data.py` to pull benchmark data and by the trainer to download Gemma weights at runtime. Without it, you'll see `401 Unauthorized` or `GatedRepoError` when training starts.
+
+### Weights & Biases (optional)
+
+If you installed the `wandb` extra (`bash setup_env.sh <backend> wandb`):
+
+```bash
+wandb login   # paste your API key from https://wandb.ai/authorize
+```
+
+The credential persists to `~/.netrc`. Runs land at `wandb.ai/<your-username>/<project_name>` where `project_name` comes from the YAML config. Skip this entirely if you only want TensorBoard.
+
+---
+
 ## Downloading Data
 
 Benchmark data is hosted on HuggingFace:
@@ -135,61 +219,89 @@ Benchmark data is hosted on HuggingFace:
 - `ContinuousBench/News` (tag `v5`) — news articles + QA
 - `ContinuousBench/Geminon` (tag `v9`) — Geminon articles + QA
 
+The downloader script lives at **`data/helper/load_data.py`** (and so does the recipe `data/helper/download.yaml`). Make sure you've run `hf auth login` first (see [Authentication](#authentication-huggingface--wandb)).
+
 ```bash
-# Authenticate (one-time)
-hf auth login
+# Always always run from the repo root, NOT from data/helper/.
+# (output paths are repo-root-relative)
 
-# Download all tracks per the recipe in data/download.yaml
-python data/load_data.py
+# Just one track (recommended — pass --track explicitly)
+python data/helper/load_data.py --track news
+python data/helper/load_data.py --track geminon
 
-# Just one track
-python data/load_data.py --track news
+# Download all tracks listed in the recipe (no --track flag)
+python data/helper/load_data.py
 
-# Override corpus size (small/medium/large)
-python data/load_data.py --track geminon --corpus large --qa medium
+# Override corpus / QA size (small/medium/large where supported)
+python data/helper/load_data.py --track geminon --corpus large --qa medium
 
-# Debug: list all files in a repo
-python data/load_data.py --list geminon
+# Debug: list every file in the HF repo for a track
+python data/helper/load_data.py --list news
+python data/helper/load_data.py --list geminon
 ```
 
-The download recipe (`data/download.yaml`) maps HF repo paths to local filenames:
+The download recipe (`data/helper/download.yaml`) maps HF repo paths to local filenames. After running the loader, files always land at:
 
-```yaml
-tracks:
-  news:
-    repo: ContinuousBench/News
-    revision: v5
-    files:
-      train.jsonl:  corpus_small/train.jsonl
-      val.jsonl:    corpus_small/val.jsonl
-      valqa.jsonl:  qa/val.jsonl
-      testqa.jsonl: qa/test.jsonl
+```
+data/<track>/train.jsonl
+data/<track>/val.jsonl
+data/<track>/valqa.jsonl
+data/<track>/testqa.jsonl
 ```
 
-Files land at `data/<track>/{train,val,valqa,testqa}.jsonl`.
+Files are written to `data/<track>/`, not `data/helper/<track>/`. If you see them in `helper/`, you're running an out-of-date version of the script — re-pull `main`. The track YAML configs hard-code these `data/<track>/...` paths, so they only work after the loader has run.
 
 ---
 
 ## Formatting Data
 
-### News track
+### News track — REQUIRED
 
-Raw news records have `title`, `date`, `text` fields. To format into `"Title: ...\nDate: ...\nArticle: ..."`:
+The news data on HuggingFace ships as multi-column JSONL (`url`, `hostname`, `title`, `date`, `crawl_date`, `language`, `text`). The `train.py` data pipeline expects a **single-column `{"text": "Title: ...\nDate: ...\nArticle: ..."}`** shape. So after `load_data.py` you **must run the formatter** before the news track will train correctly.
 
 ```bash
-python data/helper/format_news.py \
-    --input data/news/train.jsonl \
-    --output data/news/train_formatted.jsonl
+# In-place rewrite (recommended — keeps the original filenames)
+python data/helper/format_news.py --input data/news/train.jsonl --output data/news/train.jsonl --overwrite
+python data/helper/format_news.py --input data/news/val.jsonl   --output data/news/val.jsonl   --overwrite
 
-# For raw/dirty input (not from ContinuousBench), add --normalize
-python data/helper/format_news.py --input raw.jsonl --output out.jsonl --normalize
+# OR write to a new file and update train_path / val_path in the config
+python data/helper/format_news.py --input data/news/train.jsonl --output data/news/train_formatted.jsonl
 ```
 
-Note: ContinuousBench/News data is already cleaned during curation. The `--normalize` flag is a no-op on it.
+The QA files (`valqa.jsonl`, `testqa.jsonl`) do **not** need formatting — they're already in the right shape.
+
+For raw / dirty input (not from ContinuousBench), pass `--normalize`. ContinuousBench/News is pre-cleaned during curation, so `--normalize` is a no-op on it.
+
+### Geminon track — NOT required
+
+Geminon data ships pre-formatted; the loader output is ready to train on directly.
 
 ---
 
 ## Configuration System
+
+> **You don't have to write or edit any YAML to use the defaults.** The shipped track configs in `configs/tracks/` cover the common cases (1B/4B/12B × Full/LoRA × news/geminon). To run one of them, just point `train.py` at the file. This section explains how the inheritance works only because you'll want it eventually for new tracks or sweeps.
+
+### File naming convention
+
+```
+configs/
+├── base/
+│   ├── tasks/<task>.yaml                     # data paths + eval settings for that benchmark
+│   │   ├── news.yaml                         # the news task
+│   │   └── geminon.yaml                      # the geminon task
+│   └── models/gemma3_<size>_<adapter>.yaml   # model + optimizer + training defaults
+│       ├── gemma3_1b_full.yaml      gemma3_1b_lora128.yaml
+│       ├── gemma3_4b_full.yaml      gemma3_4b_lora128.yaml
+│       └── gemma3_12b_full.yaml     gemma3_12b_lora128.yaml
+└── tracks/<task>_gemma3_<size>_<adapter>.yaml   # composes one task × one model
+    ├── news_gemma3_1b_full.yaml          news_gemma3_1b_lora128.yaml
+    ├── news_gemma3_4b_full.yaml          news_gemma3_4b_lora128.yaml
+    ├── geminon_gemma3_1b_full.yaml       geminon_gemma3_1b_lora128.yaml
+    └── ...
+```
+
+**Track files are the launch point** — those are what you pass to `--config`. They're tiny: most just say "task X + model Y, plus a few overrides like learning rate and run name". The base files hold the shared defaults that every track inherits.
 
 Configs use **composable base + track inheritance**. Each track combines a task (data + eval) with a model (params + optimizer + training defaults) via a `_base:` list, then layers track-specific overrides.
 
@@ -272,26 +384,52 @@ python train.py --config configs/tracks/geminon_gemma3_1b_lora128.yaml --framewo
 python train.py --config configs/tracks/geminon_gemma3_1b_lora128.yaml --framework hf
 ```
 
-### Batch size semantics (important, not symmetric)
+### Batch size semantics (important — the same yaml means different things to HF vs KD)
 
-`effective_batch_size` is defined consistently: **real total samples per optimizer step, across all chips**. The same yaml value means the same real batch on HF and KD.
+There are two batch-size fields in every config. **Only one of them — `effective_batch_size` — has a stable cross-framework meaning. The other does not.**
 
-`per_device_batch_size` is **framework-dependent** because the two stacks load data differently:
+#### `effective_batch_size` — same meaning everywhere
 
-| | HF / PyTorch DDP | KD / JAX FSDP |
-|---|---|---|
-| per_device_batch_size means | truly per-device (each GPU loads its own batch) | global per-iter batch (Kauldron shards across the mesh) |
-| real effective = | `per_device × world_size × grad_accum` | `per_device × grad_accum` |
-| scaling chips = | **more samples per step** (unless you reduce per_device or grad_accum) | **same samples per step, each chip sees fewer** |
+> **Real total samples per optimizer step, summed across all chips.** Same number → same real gradient signal, regardless of HF/KD or chip count.
 
-The HF trainer reads `WORLD_SIZE` at launch and derives `grad_accum = effective_batch_size // (per_device × world_size)`. The KD trainer uses `grad_accum = effective_batch_size // per_device`. Either way, one yaml produces the right real effective batch.
+This is the number you should think about when comparing runs.
 
-Example, `per_device_batch_size: 4, effective_batch_size: 32`:
-- HF, 1 GPU: ga=8 → real 32 ✓
-- HF, 2 GPU torchrun: ga=4 → real 32 ✓
-- HF, 4 GPU torchrun: ga=2 → real 32 ✓
-- KD, 1 chip: ga=8 → real 32 ✓
-- KD, 2 chip FSDP: ga=8 (each chip processes 2 samples per data-iter) → real 32 ✓
+#### `per_device_batch_size` — framework-dependent meaning
+
+The number of samples that fit through one **forward/backward pass** before any gradient accumulation. But what counts as "one pass" differs:
+
+| Framework | What `per_device_batch_size = X` actually means |
+|---|---|
+| **HF / PyTorch (DDP)** | Each GPU independently processes X samples per fwd/bwd. With N GPUs in DDP, **N×X total samples are processed per data-iter**. |
+| **KD / JAX (FSDP)** | X is the **global** per-iter batch — Kauldron shards those X samples across the FSDP mesh. With N chips, each chip sees X/N samples per fwd/bwd. **Total X samples processed per data-iter, regardless of chip count.** |
+
+So with the same `per_device_batch_size: 4`:
+- **HF on 4 GPUs** → 16 samples per data-iter
+- **KD on 4 chips** → 4 samples per data-iter (1 per chip)
+
+That asymmetry forces the gradient-accumulation math to differ:
+
+```
+HF:  grad_accum = effective_batch_size // (per_device × world_size)
+KD:  grad_accum = effective_batch_size // per_device
+```
+
+The trainer derives `grad_accum` automatically — you don't pass it. Just set `effective_batch_size` and `per_device_batch_size`, and you'll get the right `ga` for whichever framework you launch with.
+
+**Worked example.** `per_device_batch_size: 4, effective_batch_size: 32`:
+
+| Setup | per data-iter | grad_accum | real effective per opt step |
+|---|---:|---:|---:|
+| HF, 1 GPU | 4 | 8 | 32 ✓ |
+| HF, 2 GPUs torchrun | 8 | 4 | 32 ✓ |
+| HF, 4 GPUs torchrun | 16 | 2 | 32 ✓ |
+| KD, 1 chip | 4 | 8 | 32 ✓ |
+| KD, 2 chips FSDP | 4 (= 2/chip) | 8 | 32 ✓ |
+| KD, 4 chips FSDP | 4 (= 1/chip) | 8 | 32 ✓ |
+
+Punchline: `effective_batch_size` is what stays constant. `per_device_batch_size` is essentially a **memory knob** — bigger means fewer accumulation steps but more activation memory per chip; smaller is the opposite. Tune it for whatever fits on your hardware.
+
+> **Heads-up on `effective` vs `eval_per_device_batch_size`.** Eval uses its own knob (`training.eval_per_device_batch_size`). Same framework asymmetry as above.
 
 ### FSDP and memory guidance (40 GB A100)
 
@@ -312,11 +450,16 @@ The KD path allocates `optax.MultiSteps` `acc_grads` at full-param shape (even w
 
 ## Training
 
+> **Always activate the env first.** Every command in this section assumes `conda activate <env_name>` has already been run in your current shell (default env is `cbe`). Running `train.py` from a non-activated shell will hit `ModuleNotFoundError: cbe` or, worse, find a different Python and silently use it.
+
+```bash
+conda activate cbe     # or whatever you named your env via setup_env.sh
+```
+
 ### Single GPU — HuggingFace/TRL
 
 ```bash
-conda activate cbe     # or cbe-hf if separate envs
-python train.py --config configs/tracks/geminon.yaml --framework hf
+python train.py --config configs/tracks/news_gemma3_1b_lora128.yaml --framework hf
 ```
 
 ### Multi-GPU — HuggingFace/TRL (DDP)
@@ -324,11 +467,11 @@ python train.py --config configs/tracks/geminon.yaml --framework hf
 ```bash
 # 4 GPUs
 torchrun --nproc_per_node=4 train.py \
-    --config configs/tracks/geminon.yaml --framework hf
+    --config configs/tracks/news_gemma3_1b_lora128.yaml --framework hf
 
 # Specific GPUs
 CUDA_VISIBLE_DEVICES=2,3 torchrun --nproc_per_node=2 train.py \
-    --config configs/tracks/geminon.yaml --framework hf
+    --config configs/tracks/news_gemma3_1b_lora128.yaml --framework hf
 ```
 
 DDP is HF Trainer's default when launched via `torchrun`. Only rank 0 logs to wandb/TB and writes metrics — no duplicate entries.
@@ -336,12 +479,11 @@ DDP is HF Trainer's default when launched via `torchrun`. Only rank 0 logs to wa
 ### Kauldron (JAX) — all visible GPUs automatically
 
 ```bash
-conda activate cbe
-python train.py --config configs/tracks/geminon.yaml --framework kd
+python train.py --config configs/tracks/news_gemma3_1b_lora128.yaml --framework kd
 
 # Use specific GPUs
 CUDA_VISIBLE_DEVICES=0,1 python train.py \
-    --config configs/tracks/geminon.yaml --framework kd
+    --config configs/tracks/news_gemma3_1b_lora128.yaml --framework kd
 ```
 
 JAX auto-discovers all visible devices and shards via FSDP. No special launcher needed.
@@ -425,19 +567,27 @@ For KD runs, Kauldron writes to separate subdirs per evaluator (`train/`, `eval_
 
 ### Weights & Biases
 
-```bash
-# One-time login
-wandb login
+W&B is opt-in. To enable it:
 
-# Enable in config
-logging:
-  backends: [tensorboard, wandb]
-  project_name: cbe
-  run_name: geminon/my-experiment
-
-# Or via CLI override
---override "logging.backends=[tensorboard,wandb]"
-```
+1. Install the wandb extra at env-creation time (any backend):
+   ```bash
+   bash setup_env.sh torch-gpu wandb     # or jax-gpu wandb / jax-tpu wandb
+   ```
+2. Authenticate one-time per machine (see [Authentication](#authentication-huggingface--wandb)):
+   ```bash
+   wandb login   # paste API key from https://wandb.ai/authorize
+   ```
+3. Add `wandb` to the `logging.backends` list (already on by default in the news + geminon task configs):
+   ```yaml
+   logging:
+     backends: [tensorboard, wandb]
+     project_name: cbe
+     run_name: news/my-experiment
+   ```
+   Or pass via CLI:
+   ```
+   --override "logging.backends=[tensorboard,wandb]"
+   ```
 
 Runs upload to `wandb.ai/<your-username>/<project_name>`.
 
@@ -499,10 +649,10 @@ outputs/<project_name>/<run_name>/
 
 ## Adding a New Track
 
-1. Place data in `data/<track>/{train,val,valqa,testqa}.jsonl` (or add entries to `data/download.yaml`)
-2. Copy `configs/tracks/news.yaml` to `configs/tracks/<track>.yaml`
-3. Update `_base`, `data.*_path`, `logging.run_name`, and the `eval` block
-4. Train: `python train.py --config configs/tracks/<track>.yaml --framework hf`
+1. Place data in `data/<track>/{train,val,valqa,testqa}.jsonl` (or add entries to `data/helper/download.yaml` and run `python data/helper/load_data.py --track <track>`)
+2. Create a task base file `configs/base/tasks/<track>.yaml` (copy `configs/base/tasks/news.yaml` as a template; update `data.*_path`, `eval.parser`, etc.)
+3. Create a track config `configs/tracks/<track>_gemma3_<size>_<adapter>.yaml` (copy any of the existing `news_gemma3_*` files); set its `_base:` list to point at the new task + the model base you want
+4. Train: `python train.py --config configs/tracks/<track>_gemma3_<size>_<adapter>.yaml --framework hf`
 
 ## Adding a New Model
 
