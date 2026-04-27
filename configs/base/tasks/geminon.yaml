@@ -5,6 +5,11 @@ data:
   val_path: data/geminon/val.jsonl
   valqa_path: data/geminon/valqa.jsonl
   testqa_path: data/geminon/testqa.jsonl
+  # Extra QA sets evaluated alongside valqa/testqa at every eval step.
+  # Map key → metric prefix in eval_results.jsonl + wandb / TB scalars
+  # (e.g. `sensitive_exact_match`, `sensitive_fuzzy_match`).
+  extra_qa_paths:
+    sensitive: data/geminon/sensitive_qa.jsonl
   sequence_length: 256
   task: next_token
   num_workers: 4

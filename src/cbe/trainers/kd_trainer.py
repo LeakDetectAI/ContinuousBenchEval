@@ -221,6 +221,18 @@ class KauldronTrainer:
                 **qa_common,
             )
 
+        # Extra QA sets — one QAEvaluator per entry in data.extra_qa_paths.
+        # The dict key is used as the metric prefix (e.g. "sensitive" →
+        # `sensitive_exact_match`) and as the eval_details filename stem.
+        for prefix, qa_path in (self.config.data.extra_qa_paths or {}).items():
+            evals[f"qa_{prefix}"] = QAEvaluator(
+                name=f"qa_{prefix}",
+                run=kd.evals.EveryNSteps(eval_every_iters),
+                qa_path=qa_path,
+                metric_prefix=prefix,
+                **qa_common,
+            )
+
         # --- Writer: tee every scalar Kauldron logs (train loss, eval loss,
         # LR, grad norm, etc.) into our MultiLogger so wandb gets the full
         # training curve, not just our QA metrics.

@@ -22,6 +22,14 @@ class DataConfig:
     val_path: str = ""
     valqa_path: str | None = None
     testqa_path: str | None = None
+    # Optional extra QA sets, evaluated alongside valqa/testqa at every
+    # eval_every step. Mapping is {metric_prefix: jsonl_path}, e.g.
+    #   extra_qa_paths:
+    #     sensitive: data/geminon/sensitive_qa.jsonl
+    # produces metrics keyed `sensitive_exact_match`, `sensitive_fuzzy_match`,
+    # etc. (plus stratified `_supports_ge_<k>` keys when configured), and
+    # writes per-example details to eval_details/sensitive_step_<N>.jsonl.
+    extra_qa_paths: dict[str, str] | None = None
     sequence_length: int = 1024
     task: str = "next_token"  # "next_token" | "seq2seq"
     num_workers: int = 4

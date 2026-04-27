@@ -28,7 +28,7 @@ training:
   save_every: 1000
   # 4B checkpoints are ~17 GB (params 8 + Adam mu/nu bf16 8). Keeping 3 copies
   # = ~50 GB per run — enough to fill a disk fast. Keep only the latest.
-  max_checkpoints: 1
+  max_checkpoints: 5
   seed: 42
   sharding: fsdp                      # recommended for multi-GPU KD; HF ignores
   gradient_checkpointing: true

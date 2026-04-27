@@ -7,4 +7,5 @@ _base:
   - base/models/gemma3_1b_lora128.yaml
 
 logging:
-  run_name: geminon/gemma3-1b-lora128
+  project_name: geminon-small
+  run_name: 1b-lora

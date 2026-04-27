@@ -21,7 +21,7 @@
 tracks:
   news:
     repo: ContinuousBench/News
-    revision: v5
+    # revision: v5
     # local_name: path_in_hf_repo
     files:
       train.jsonl:  corpus_small/train.jsonl
@@ -31,7 +31,7 @@ tracks:
 
   geminon:
     repo: ContinuousBench/Geminon
-    revision: v9
+    # revision: v9
     files:
       train.jsonl:  corpus_small/train.jsonl
       val.jsonl:    corpus_small/val.jsonl

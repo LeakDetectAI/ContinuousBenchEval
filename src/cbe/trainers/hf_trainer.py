@@ -259,6 +259,34 @@ class HFTrainer:
                             continue
                         eval_metrics[f"testqa_{k}"] = v
 
+                # Extra QA sets (e.g. sensitive_qa). Same pipeline, same
+                # metric forwarding — prefix is the dict key the user chose.
+                for prefix, qa_path in (config.data.extra_qa_paths or {}).items():
+                    details_path = (
+                        artifact_store.qa_details_path(prefix, step)
+                        if ec.save_detailed_results else None
+                    )
+                    qa_metrics = run_qa_eval_hf(
+                        model=eval_model,
+                        tokenizer=tokenizer,
+                        qa_path=qa_path,
+                        prompt_prefix=ec.prompt_prefix,
+                        prompt_template=ec.prompt_template,
+                        max_new_tokens=ec.max_new_tokens,
+                        batch_size=ec.batch_size,
+                        temperature=ec.temperature,
+                        top_k=ec.top_k,
+                        top_p=ec.top_p,
+                        parser=ec.parser,
+                        num_examples=ec.num_examples,
+                        save_details_path=details_path,
+                        support_thresholds=ec.support_thresholds,
+                    )
+                    for k, v in qa_metrics.items():
+                        if k == "total" or not isinstance(v, (int, float)):
+                            continue
+                        eval_metrics[f"{prefix}_{k}"] = v
+
                 if eval_metrics:
                     logger.log_scalars(eval_metrics, step=step)
                     artifact_store.save_metrics(eval_metrics, step=step)

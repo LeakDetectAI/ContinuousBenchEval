@@ -19,6 +19,6 @@ training:
   eval_per_device_batch_size: 4
 
 logging:
-  # project_name: cbe-hyperparameter-sweep
-  run_name: news/gemma3-1b-lora128
+  project_name: news-small
+  run_name: 1b-lora
   

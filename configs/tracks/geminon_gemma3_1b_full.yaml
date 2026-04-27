@@ -7,4 +7,6 @@ _base:
   - base/models/gemma3_1b_full.yaml
 
 logging:
-  run_name: geminon/gemma3-1b-full
+  project_name: geminon-small
+  run_name: 1b-full
+
