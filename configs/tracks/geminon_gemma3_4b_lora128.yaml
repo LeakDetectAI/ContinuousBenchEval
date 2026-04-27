@@ -24,4 +24,5 @@ eval:
   batch_size: 16                        # sampling bsz for valqa/testqa
 
 logging:
-  run_name: geminon/gemma3-4b-lora128
+  project_name: geminon-small
+  run_name: 4b-lora

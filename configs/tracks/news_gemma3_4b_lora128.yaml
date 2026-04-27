@@ -14,9 +14,9 @@ training:
   # Per_device is KD-global per-iter batch; effective=32 gives grad_accum=8.
   # HF reads per_device as truly per-GPU, so HF runs will want a larger value.
   sharding: fsdp                        # "replicated" | "fsdp" (KD only; HF ignores)
-  per_device_batch_size: 4
-  eval_per_device_batch_size: 8
+  per_device_batch_size: 2
+  eval_per_device_batch_size: 4
 
 logging:
-  project_name: cbe-hyperparameter-sweep
-  run_name: news/gemma3-4b-lora128-seqlen1024-lr1e-4
+  project_name: news-small
+  run_name: 4b-lora

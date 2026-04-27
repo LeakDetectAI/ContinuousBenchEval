@@ -13,4 +13,5 @@ training:
   sharding: fsdp                        # "replicated" | "fsdp" (KD only; HF ignores)
 
 logging:
-  run_name: geminon/gemma3-4b-full
+  project_name: geminon-small
+  run_name: 4b-full
