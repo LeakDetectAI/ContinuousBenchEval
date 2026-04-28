@@ -48,3 +48,5 @@ Thumbs.db
 .env
 *.key
 .huggingface/
+secrets/*
+!secrets/*.example

@@ -29,6 +29,7 @@ tracks:
       valqa.jsonl:  qa/val.jsonl
       testqa.jsonl: qa/test.jsonl
 
+
   geminon:
     repo: ContinuousBench/Geminon
     # revision: v9
@@ -37,3 +38,5 @@ tracks:
       val.jsonl:    corpus_small/val.jsonl
       valqa.jsonl:  qa_small/public_val.jsonl
       testqa.jsonl: qa_small/public_test.jsonl
+      sensitive_valqa.jsonl:  qa_small/sensitive_val.jsonl
+      sensitive_testqa.jsonl: qa_small/sensitive_test.jsonl

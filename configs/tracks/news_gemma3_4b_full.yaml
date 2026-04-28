@@ -11,7 +11,7 @@ optimizer:
 
 training:
   # XLA_PYTHON_CLIENT_MEM_FRACTION=0.92
-  # This config work for 4 x a100 40gib with seqlen 512
+  # This config work for 4 x a100 40gib with seqlen 1024
   sharding: fsdp                        # "replicated" | "fsdp" (KD only; HF ignores)
   per_device_batch_size: 4
   eval_per_device_batch_size: 4
@@ -20,5 +20,5 @@ eval:
   batch_size: 4
 
 logging:
-  project_name: cbe-hyperparameter-sweep
-  run_name: news/gemma3-4b-full-5e-5
+  project_name: news-small
+  run_name: 4b-full
