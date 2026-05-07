@@ -124,7 +124,7 @@ ContinuousBenchEval/
 **You must pick exactly one of `torch-gpu`, `jax-gpu`, or `jax-tpu` per env.** They install conflicting frameworks. If you want to try both backends, create two separate envs (different `env_name`).
 
 ```bash
-git clone git@github.com:plau666/ContinuousBenchEval.git
+git clone ...
 cd ContinuousBenchEval
 
 # Pick ONE of the following — each creates a fresh conda env named "cbe":
