@@ -269,6 +269,12 @@ def _judge_one(pool: _KeyPool, model: str, prompt: str,
     Raises RuntimeError only if `max_attempts` retries all fail. Caller
     can catch and either bubble up or do one more pass.
     """
+    from google.genai import types
+
+    # Greedy decoding: temperature=0 → deterministic verdicts. Same prompt +
+    # same model version should now produce the same 0/1 across runs.
+    gen_cfg = types.GenerateContentConfig(temperature=0)
+
     last_err: Exception | None = None
     last_text: str | None = None
     for attempt in range(max_attempts):
@@ -277,6 +283,7 @@ def _judge_one(pool: _KeyPool, model: str, prompt: str,
             resp = client.models.generate_content(
                 model=model,
                 contents=prompt,
+                config=gen_cfg,
             )
             text = (resp.text or "").strip()
             verdict = _parse_verdict(text)

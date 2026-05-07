@@ -9,9 +9,6 @@ fields (optionally with `date` being an ISO timestamp), and writes a new
     Date: Sep 01 (2025-09-01 00:00:00 UTC)
     Article: <cleaned body>
 
-This matches the format produced by
-dpsynth/datasets/news/CC_to_format1.py.
-
 NOTE: The ContinuousBench/News data hosted on HuggingFace is already
 cleaned during curation — running body normalization on it is a no-op
 (verified on 1k+ records). Pass --normalize only if your input is raw /

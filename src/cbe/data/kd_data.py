@@ -21,7 +21,7 @@ from cbe.data.formatters import load_jsonl
 
 
 # ---------------------------------------------------------------------------
-# Grain transforms (ported from dpsynth/training/data.py)
+# Grain transforms
 # ---------------------------------------------------------------------------
 
 @dataclasses.dataclass

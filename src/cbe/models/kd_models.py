@@ -1,7 +1,7 @@
 """JAX / Kauldron model factories.
 
 Provides an abstract JaxModelFactory protocol and a concrete Gemma
-implementation ported from dpsynth/training/model.py.
+implementation.
 """
 
 from __future__ import annotations
