@@ -31,7 +31,7 @@ If you just want to train Gemma3-1B-LoRA on the news track end-to-end with sane 
 
 ```bash
 # 1) Clone + install ONE backend (pick torch-gpu OR jax-gpu, not both)
-git clone git@github.com:plau666/ContinuousBenchEval.git
+git clone ...
 cd ContinuousBenchEval
 bash setup_env.sh torch-gpu wandb            # for HF/TRL  — env name: "cbe"
 # (or)  bash setup_env.sh jax-gpu wandb      # for Kauldron — env name: "cbe"
