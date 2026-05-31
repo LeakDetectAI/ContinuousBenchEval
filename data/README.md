@@ -2,8 +2,8 @@
 
 ContinuousBench data is hosted on HuggingFace:
 
-- **`ContinuousBench/News`** (tag `v5`) — news articles + QA
-- **`ContinuousBench/Geminon`** (tag `v9`) — Geminon articles + QA (public + sensitive splits)
+- **`ContinuousBench/News`** — news articles + QA
+- **`ContinuousBench/Geminon`** — Geminon articles + QA (public + sensitive splits)
 
 Access may be gated; run `hf auth login` with a read token before downloading. To train on your own data instead, see [Custom data](#custom-data).
 
@@ -34,7 +34,6 @@ Files land at `data/<track>/{train,val,valqa,testqa}.jsonl` — exactly what the
 tracks:
   news:
     repo: ContinuousBench/News
-    revision: v5
     files:
       train.jsonl:  corpus_small/train.jsonl
       val.jsonl:    corpus_small/val.jsonl
@@ -46,11 +45,11 @@ Edit the recipe to pin a different corpus size (`corpus_{small,medium,large}`), 
 
 ### What's available in each repo
 
-**News** (`ContinuousBench/News`, revision `v5`):
+**News** (`ContinuousBench/News`):
 - `corpus_{large,medium,small}/{train,val,test,all}.jsonl`
 - `qa/{val,test}.jsonl`
 
-**Geminon** (`ContinuousBench/Geminon`, revision `v9`):
+**Geminon** (`ContinuousBench/Geminon`):
 - `corpus_{large,medium,small}/{train,val,test,all}.jsonl`
 - `qa_{small,medium}/{public_val,public_test,sensitive_val,sensitive_test}.jsonl`
 

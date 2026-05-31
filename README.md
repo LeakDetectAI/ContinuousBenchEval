@@ -9,12 +9,11 @@ A framework-agnostic training and evaluation harness for continual learning benc
 ## Table of Contents
 
 - [TL;DR — End-to-end first run](#tldr--end-to-end-first-run)
-- [Repository Layout](#repository-layout)
 - [Environment Setup](#environment-setup)
 - [Authentication (HuggingFace + W&B)](#authentication-huggingface--wandb)
 - [Downloading Data](#downloading-data)
 - [Formatting Data](#formatting-data)
-- [Configuration System](#configuration-system)
+- [Training recipes](#training-recipes)
 - [Training](#training)
 - [Evaluation](#evaluation)
 - [Logging and Monitoring](#logging-and-monitoring)
@@ -60,61 +59,6 @@ python train.py --config configs/tracks/news_gemma3_1b_lora128.yaml --framework 
 ```
 
 That's all of the *required* steps. Default configs already specify model, batch sizes, learning rate, eval cadence, etc., so you don't have to touch any yaml unless you want to. The remaining sections describe what each piece does and how to customize it.
-
----
-
-## Repository Layout
-
-```
-ContinuousBenchEval/
-├── train.py                    # Training entry point
-├── evaluate.py                 # Standalone eval entry point
-├── llm_evaluate.py             # LLM-as-judge re-scoring of eval_details/*.jsonl
-├── pyproject.toml              # Package definition
-├── setup_env.sh                # One-command conda env setup
-├── .gitignore
-│
-├── configs/
-│   ├── base/
-│   │   ├── tasks/              # Data paths + task-specific eval settings
-│   │   │   ├── geminon.yaml
-│   │   │   └── news.yaml
-│   │   └── models/             # Model + optimizer + training defaults
-│   │       ├── gemma3_{1b,4b,12b}_full.yaml
-│   │       └── gemma3_{1b,4b,12b}_lora128.yaml
-│   ├── tracks/                 # Composable tracks: task × model × adapter
-│   │   ├── geminon_gemma3_1b_full.yaml        # _base lists a task + a model
-│   │   ├── geminon_gemma3_4b_lora128.yaml
-│   │   └── news_gemma3_12b_lora128.yaml
-│   └── prompts/                # Few-shot prefixes loaded via prompt_prefix_file
-│       ├── geminon.txt
-│       └── news.txt
-│
-├── scripts/
-│   └── plot_runs.py            # Quick plot of valqa/eval_loss/train_loss across runs
-│
-├── data/
-│   ├── helper/
-│   │   ├── load_data.py        # Pull data from HF Hub (run from repo root)
-│   │   ├── download.yaml       # Recipe: which files to pull from which HF repo
-│   │   └── format_news.py      # Title/Date/Article formatting (REQUIRED for news track)
-│   └── <track>/*.jsonl         # (gitignored, downloaded by load_data.py)
-│
-├── requirements/
-│   ├── torch-gpu.txt           # HF/TRL on GPU (CUDA 12.4)
-│   ├── jax-gpu.txt             # Kauldron on GPU
-│   ├── jax-tpu.txt             # Kauldron on TPU
-│   └── wandb.txt               # Optional wandb support
-│
-└── src/cbe/                    # Main package
-    ├── config.py               # YAML -> dataclasses (with _base inheritance)
-    ├── data/                   # Shared formatters + KD/HF data pipelines
-    ├── models/                 # KD (Gemma+) and HF (AutoModel) factories
-    ├── trainers/               # KauldronTrainer and HFTrainer wrappers
-    ├── logging/                # TB + wandb backends, MultiLogger
-    ├── artifacts/              # Standardized local artifact store
-    └── eval/                   # QA inference, metrics, parsers, KD evaluator
-```
 
 ---
 
@@ -279,173 +223,31 @@ Geminon data ships pre-formatted; the loader output is ready to train on directl
 
 ---
 
-## Configuration System
+## Training recipes
 
-> **You don't have to write or edit any YAML to use the defaults.** The shipped track configs in `configs/tracks/` cover the common cases (1B/4B/12B × Full/LoRA × news/geminon). To run one of them, just point `train.py` at the file. This section explains how the inheritance works only because you'll want it eventually for new tracks or sweeps.
-
-### File naming convention
-
-```
-configs/
-├── base/
-│   ├── tasks/<task>.yaml                     # data paths + eval settings for that benchmark
-│   │   ├── news.yaml                         # the news task
-│   │   └── geminon.yaml                      # the geminon task
-│   └── models/gemma3_<size>_<adapter>.yaml   # model + optimizer + training defaults
-│       ├── gemma3_1b_full.yaml      gemma3_1b_lora128.yaml
-│       ├── gemma3_4b_full.yaml      gemma3_4b_lora128.yaml
-│       └── gemma3_12b_full.yaml     gemma3_12b_lora128.yaml
-└── tracks/<task>_gemma3_<size>_<adapter>.yaml   # composes one task × one model
-    ├── news_gemma3_1b_full.yaml          news_gemma3_1b_lora128.yaml
-    ├── news_gemma3_4b_full.yaml          news_gemma3_4b_lora128.yaml
-    ├── geminon_gemma3_1b_full.yaml       geminon_gemma3_1b_lora128.yaml
-    └── ...
-```
-
-**Track files are the launch point** — those are what you pass to `--config`. They're tiny: most just say "task X + model Y, plus a few overrides like learning rate and run name". The base files hold the shared defaults that every track inherits.
-
-Configs use **composable base + track inheritance**. Each track combines a task (data + eval) with a model (params + optimizer + training defaults) via a `_base:` list, then layers track-specific overrides.
-
-### Task base (configs/base/tasks/geminon.yaml)
-
-```yaml
-data:
-  train_path: data/geminon/train.jsonl
-  val_path: data/geminon/val.jsonl
-  valqa_path: data/geminon/valqa.jsonl
-  testqa_path: data/geminon/testqa.jsonl
-  sequence_length: 256
-
-eval:
-  prompt_prefix_file: configs/prompts/geminon.txt   # loaded verbatim at runtime
-  prompt_template: "Q: {question}\nA:"
-  max_new_tokens: 32
-  batch_size: 32
-  temperature: 0.0
-  parser: finegrained_geminon
-  save_detailed_results: true
-
-logging:
-  backends: [tensorboard, wandb]
-  project_name: cbe-geminon
-```
-
-### Model base (configs/base/models/gemma3_4b_lora128.yaml)
-
-```yaml
-_base: base/models/gemma3_4b_full.yaml   # chained base: inherit from full
-
-model:
-  lora_rank: 128
-
-optimizer:
-  lr: 1.0e-4
-
-training:
-  per_device_batch_size: 8
-```
-
-### Track config (configs/tracks/geminon_gemma3_4b_lora128.yaml)
-
-```yaml
-_base:
-  - base/tasks/geminon.yaml                    # data + eval + prompt
-  - base/models/gemma3_4b_lora128.yaml         # model + optimizer + training
-
-training:
-  sharding: fsdp                # "replicated" | "fsdp" (KD); HF ignores
-  # Per-track overrides land here. E.g., tight memory on 2×40GB A100:
-  per_device_batch_size: 4
-  effective_batch_size: 32      # real total samples per opt step (see below)
-
-logging:
-  run_name: geminon/gemma3-4b-lora128
-```
-
-Later entries in `_base:` win on conflict. `_base` can also be a single string for single-parent inheritance.
-
-### CLI overrides
-
-Any config field can be overridden from the command line:
+The shipped track configs in `configs/tracks/` are *recipes* — one YAML per (task × model × adapter) combo, with sensible defaults already baked in. **You almost never need to touch these.** Just pick one and run it.
 
 ```bash
-python train.py --config configs/tracks/geminon_gemma3_1b_lora128.yaml --framework kd \
-    --override optimizer.lr=1e-4 \
-    --override training.per_device_batch_size=8 \
-    --override logging.run_name=geminon/my-experiment \
-    --override "logging.backends=[tensorboard,wandb]"
+# Available recipes
+ls configs/tracks/
+#   geminon_gemma3_1b_full.yaml       news_gemma3_1b_full.yaml
+#   geminon_gemma3_1b_lora128.yaml    news_gemma3_1b_lora128.yaml
+#   geminon_gemma3_4b_full.yaml       news_gemma3_4b_full.yaml
+#   geminon_gemma3_4b_lora128.yaml    news_gemma3_4b_lora128.yaml
+
+# Run one
+python train.py --config configs/tracks/news_gemma3_1b_lora128.yaml --framework hf
+# (or --framework kd if you installed jax-gpu)
 ```
 
-### Framework is a CLI flag, not in the config
+The recipe's filename tells you everything: `<task>_<model>_<adapter>.yaml`. Each one inherits shared defaults from `configs/base/{tasks,models}/`, so the track file itself stays tiny (data + a few overrides like run name).
 
-The same config works for both backends:
-
-```bash
-python train.py --config configs/tracks/geminon_gemma3_1b_lora128.yaml --framework kd
-python train.py --config configs/tracks/geminon_gemma3_1b_lora128.yaml --framework hf
-```
-
-### Batch size semantics (important — the same yaml means different things to HF vs KD)
-
-There are two batch-size fields in every config. **Only one of them — `effective_batch_size` — has a stable cross-framework meaning. The other does not.**
-
-#### `effective_batch_size` — same meaning everywhere
-
-> **Real total samples per optimizer step, summed across all chips.** Same number → same real gradient signal, regardless of HF/KD or chip count.
-
-This is the number you should think about when comparing runs.
-
-#### `per_device_batch_size` — framework-dependent meaning
-
-The number of samples that fit through one **forward/backward pass** before any gradient accumulation. But what counts as "one pass" differs:
-
-| Framework | What `per_device_batch_size = X` actually means |
-|---|---|
-| **HF / PyTorch (DDP)** | Each GPU independently processes X samples per fwd/bwd. With N GPUs in DDP, **N×X total samples are processed per data-iter**. |
-| **KD / JAX (FSDP)** | X is the **global** per-iter batch — Kauldron shards those X samples across the FSDP mesh. With N chips, each chip sees X/N samples per fwd/bwd. **Total X samples processed per data-iter, regardless of chip count.** |
-
-So with the same `per_device_batch_size: 4`:
-- **HF on 4 GPUs** → 16 samples per data-iter
-- **KD on 4 chips** → 4 samples per data-iter (1 per chip)
-
-That asymmetry forces the gradient-accumulation math to differ:
-
-```
-HF:  grad_accum = effective_batch_size // (per_device × world_size)
-KD:  grad_accum = effective_batch_size // per_device
-```
-
-The trainer derives `grad_accum` automatically — you don't pass it. Just set `effective_batch_size` and `per_device_batch_size`, and you'll get the right `ga` for whichever framework you launch with.
-
-**Worked example.** `per_device_batch_size: 4, effective_batch_size: 32`:
-
-| Setup | per data-iter | grad_accum | real effective per opt step |
-|---|---:|---:|---:|
-| HF, 1 GPU | 4 | 8 | 32 ✓ |
-| HF, 2 GPUs torchrun | 8 | 4 | 32 ✓ |
-| HF, 4 GPUs torchrun | 16 | 2 | 32 ✓ |
-| KD, 1 chip | 4 | 8 | 32 ✓ |
-| KD, 2 chips FSDP | 4 (= 2/chip) | 8 | 32 ✓ |
-| KD, 4 chips FSDP | 4 (= 1/chip) | 8 | 32 ✓ |
-
-Punchline: `effective_batch_size` is what stays constant. `per_device_batch_size` is essentially a **memory knob** — bigger means fewer accumulation steps but more activation memory per chip; smaller is the opposite. Tune it for whatever fits on your hardware.
-
-> **Heads-up on `effective` vs `eval_per_device_batch_size`.** Eval uses its own knob (`training.eval_per_device_batch_size`). Same framework asymmetry as above.
-
-### FSDP and memory guidance (40 GB A100)
-
-Typical knobs, with KD semantics (HF equivalents scale per_device by num_gpus):
-
-| model | adapter | 1 chip | 2 chip FSDP | 4 chip FSDP |
-|---|---|---|---|---|
-| 1B | LoRA | per_device=8, ga=4 | n/a | n/a |
-| 1B | Full | per_device=16, ga=2 | n/a | n/a |
-| 4B | LoRA | per_device=2, ga=16 (tight) | **per_device=4, ga=8** | per_device=8, ga=4 |
-| 4B | Full | doesn't fit | per_device=1, ga=32 (very tight) | per_device=2, ga=16 |
-| 12B | LoRA | doesn't fit | per_device=1, ga=32 (tight) | per_device=2, ga=16 |
-| 12B | Full | needs 8+ chips or DeepSpeed ZeRO-3+offload | infeasible | infeasible |
-
-The KD path allocates `optax.MultiSteps` `acc_grads` at full-param shape (even when only LoRA is trained), so grad_accum>1 adds ~2 bytes per base param to peak memory. If you have headroom, set per_device big enough to get ga=1.
+> **If you do need to tweak something:** any field can be overridden from the CLI (`--override optimizer.lr=1e-4`, etc.), or you can edit the recipe directly. The two batch-size knobs to know about are `effective_batch_size` (real samples per optimizer step — same meaning everywhere) and `per_device_batch_size` (memory knob; lower it if you OOM, raise it for fewer grad-accum steps). Defaults fit 1× or 2× 40 GB A100 for most (model, adapter) pairs. To lower it on the fly:
+>
+> ```bash
+> python train.py --config configs/tracks/news_gemma3_4b_full.yaml --framework hf \
+>     --override training.per_device_batch_size=2
+> ```
 
 ---
 
@@ -488,16 +290,6 @@ CUDA_VISIBLE_DEVICES=0,1 python train.py \
 ```
 
 JAX auto-discovers all visible devices and shards via FSDP. No special launcher needed.
-
-### What happens during training
-
-Every `eval_every` steps:
-
-1. **Eval loss** — next-token cross-entropy on `val_path` (capped at `eval_num_batches` batches)
-2. **QA eval on valqa** — generate answers, compute exact match + fuzzy match
-3. **QA eval on testqa** — same
-
-All metrics are logged to TensorBoard and/or wandb, and appended to `metrics/eval_results.jsonl`. If `save_detailed_results: true`, per-example predictions are saved to `eval_details/<qa_set>_step_<N>.jsonl`.
 
 ---
 
@@ -546,22 +338,6 @@ python llm_evaluate.py \
 
 The script reads API keys from `secrets/gemini_keys.txt` (one per line, multi-key round-robin recommended for higher quota), or the `GEMINI_API_KEY` / `GOOGLE_API_KEY` env vars. Uses `gemini-2.5-flash-lite` with `temperature=0` (deterministic) by default. See `python llm_evaluate.py --help` for resume, concurrency, and stratification options.
 
-### Answer parsers
-
-The `--parser` flag selects the answer-matching strategy:
-
-- **`finegrained_geminon`**: tailored for Geminon QA. Normalization is
-  `lower().strip().strip('.')` on both prediction and gt.
-  - Types question (`"types of"`): splits gt on `"and"` (e.g. `"Normal and
-    Flying"` → `["normal", "flying"]`); `fuzzy_match` is True iff every gt
-    type appears as a substring of the normalized prediction.
-  - All other questions (classification, evolution, moves, abilities,
-    numerical stats/height/weight): `fuzzy_match` is True iff the normalized
-    gt substring is contained in the normalized prediction.
-  - `exact_match` requires full-string equality after normalization.
-- **`default`** (or omit): lowercase exact match + substring fuzzy match,
-  with `.rstrip('.')` normalization.
-
 ---
 
 ## Logging and Monitoring
@@ -608,13 +384,7 @@ W&B is opt-in. To enable it:
 
 Runs upload to `wandb.ai/<your-username>/<project_name>`.
 
-### stdout/stderr logs
-
-All terminal output is automatically tee'd to `outputs/<project>/<run>/logs/train.log`. Tail it live:
-
-```bash
-tail -f outputs/cbe/geminon/my-run/logs/train.log
-```
+Terminal output is also tee'd to `outputs/<project>/<run>/logs/train.log` — tail it live with `tail -f`.
 
 ### Plotting across runs
 
@@ -650,16 +420,14 @@ outputs/<project_name>/<run_name>/
     └── testqa_step_002000.jsonl
 ```
 
-### eval_results.jsonl format
+Record schemas (one JSON object per line):
 
 ```json
-{"step": 2000, "timestamp": "2026-04-16T...", "eval_loss": 3.298, "valqa_exact_match": 0.42, "valqa_fuzzy_match": 0.51, "testqa_exact_match": 0.38, "testqa_fuzzy_match": 0.47}
-```
+// metrics/eval_results.jsonl
+{"step": 2000, "timestamp": "...", "eval_loss": 3.298, "valqa_exact_match": 0.42, "valqa_fuzzy_match": 0.51, "testqa_exact_match": 0.38, "testqa_fuzzy_match": 0.47}
 
-### eval_details per-example format
-
-```json
-{"prompt": "Q: What are the types of Pidgey?\nA:", "question": "What are the types of Pidgey?", "raw_prediction": " Normal and Flying.\n\nQ: ...", "parsed_prediction": "Normal and Flying", "ground_truth": "Normal/Flying", "exact_match": true, "fuzzy_match": true}
+// eval_details/<set>_step_<N>.jsonl
+{"prompt": "Q: ...\nA:", "question": "...", "raw_prediction": " ...", "parsed_prediction": "...", "ground_truth": "...", "exact_match": true, "fuzzy_match": true}
 ```
 
 ---
@@ -676,7 +444,7 @@ outputs/<project_name>/<run_name>/
 - **HF**: Set `model.name` to any HuggingFace hub ID (`meta-llama/Llama-3.1-8B`, `mistralai/Mistral-7B-v0.3`, etc.). Short Gemma names (`gemma3-1b-pt`) are auto-mapped to hub IDs.
 - **KD**: Implement the `JaxModelFactory` protocol in `src/cbe/models/kd_models.py`. The Gemma factory there is a reference implementation.
 
----
+<!-- ---
 
 ## Known Limitations
 
@@ -693,4 +461,4 @@ outputs/<project_name>/<run_name>/
 
 ## License
 
-Apache 2.0.
+Apache 2.0. -->
