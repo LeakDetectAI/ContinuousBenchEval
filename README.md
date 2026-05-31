@@ -31,7 +31,7 @@ If you just want to train Gemma3-1B-LoRA on the news track end-to-end with sane 
 
 ```bash
 # 1) Clone + install ONE backend (pick torch-gpu OR jax-gpu, not both)
-git clone ...
+git clone <repo-url>
 cd ContinuousBenchEval
 bash setup_env.sh torch-gpu wandb            # for HF/TRL  — env name: "cbe"
 # (or)  bash setup_env.sh jax-gpu wandb      # for Kauldron — env name: "cbe"
@@ -69,6 +69,7 @@ That's all of the *required* steps. Default configs already specify model, batch
 ContinuousBenchEval/
 ├── train.py                    # Training entry point
 ├── evaluate.py                 # Standalone eval entry point
+├── llm_evaluate.py             # LLM-as-judge re-scoring of eval_details/*.jsonl
 ├── pyproject.toml              # Package definition
 ├── setup_env.sh                # One-command conda env setup
 ├── .gitignore
@@ -124,7 +125,7 @@ ContinuousBenchEval/
 **You must pick exactly one of `torch-gpu`, `jax-gpu`, or `jax-tpu` per env.** They install conflicting frameworks. If you want to try both backends, create two separate envs (different `env_name`).
 
 ```bash
-git clone ...
+git clone <repo-url>
 cd ContinuousBenchEval
 
 # Pick ONE of the following — each creates a fresh conda env named "cbe":
@@ -528,6 +529,22 @@ python evaluate.py --framework hf \
     --parser geminon \
     --save_details results.jsonl
 ```
+
+### LLM-as-judge re-scoring (optional)
+
+Substring/exact-match metrics undercount paraphrased correct answers. `llm_evaluate.py` re-scores the `eval_details/*.jsonl` files produced during training with Gemini as a judge, adding an `llm_match: bool` field per record and writing a stratified summary.
+
+```bash
+pip install google-genai
+cp secrets/gemini_keys.txt.example secrets/gemini_keys.txt   # then add your keys
+
+# Judge one per-example results file
+python llm_evaluate.py \
+    --input outputs/<project>/<run>/eval_details/testqa_step_001000.jsonl
+# → writes testqa_step_001000_llm_judged.jsonl + testqa_step_001000_summary.jsonl
+```
+
+The script reads API keys from `secrets/gemini_keys.txt` (one per line, multi-key round-robin recommended for higher quota), or the `GEMINI_API_KEY` / `GOOGLE_API_KEY` env vars. Uses `gemini-2.5-flash-lite` with `temperature=0` (deterministic) by default. See `python llm_evaluate.py --help` for resume, concurrency, and stratification options.
 
 ### Answer parsers
 

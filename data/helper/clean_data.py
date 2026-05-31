@@ -3,16 +3,16 @@
 
 Usage:
     # Clean a single .jsonl file
-    python scripts/format_data.py --input raw.jsonl --output data/news/train.jsonl
+    python data/helper/clean_data.py --input raw.jsonl --output data/news/train.jsonl
 
     # Clean all .jsonl files in a folder
-    python scripts/format_data.py --input raw_folder/ --output data/news/train.jsonl
+    python data/helper/clean_data.py --input raw_folder/ --output data/news/train.jsonl
 
     # Split into train/val (90/10)
-    python scripts/format_data.py --input raw.jsonl --output data/news/ --split
+    python data/helper/clean_data.py --input raw.jsonl --output data/news/ --split
 
     # Deduplicate
-    python scripts/format_data.py --input raw.jsonl --output data/news/train.jsonl --dedup
+    python data/helper/clean_data.py --input raw.jsonl --output data/news/train.jsonl --dedup
 """
 
 import argparse

@@ -1,9 +1,11 @@
 # Data Directory
 
-ContinuousBench data is hosted on HuggingFace as two private repos:
+ContinuousBench data is hosted on HuggingFace:
 
 - **`ContinuousBench/News`** (tag `v5`) — news articles + QA
 - **`ContinuousBench/Geminon`** (tag `v9`) — Geminon articles + QA (public + sensitive splits)
+
+Access may be gated; run `hf auth login` with a read token before downloading. To train on your own data instead, see [Custom data](#custom-data).
 
 ## Downloading
 
@@ -11,22 +13,22 @@ Authenticate once, then run the loader:
 
 ```bash
 hf auth login                            # one-time
-python data/load_data.py                 # download all tracks per download.yaml
-python data/load_data.py --track news    # just one track
+python data/helper/load_data.py                 # download all tracks per download.yaml
+python data/helper/load_data.py --track news    # just one track
 
 # Pick a different corpus / QA size without editing the recipe:
-python data/load_data.py --track geminon --corpus large
-python data/load_data.py --track geminon --corpus medium --qa medium
+python data/helper/load_data.py --track geminon --corpus large
+python data/helper/load_data.py --track geminon --corpus medium --qa medium
 
 # Debug: list every file in a repo
-python data/load_data.py --list geminon
+python data/helper/load_data.py --list geminon
 ```
 
 Files land at `data/<track>/{train,val,valqa,testqa}.jsonl` — exactly what the track YAML configs at `configs/tracks/*.yaml` expect.
 
 ## The download recipe
 
-`data/download.yaml` controls what gets downloaded. Each entry maps a local filename to a path inside the HF repo:
+`data/helper/download.yaml` controls what gets downloaded. Each entry maps a local filename to a path inside the HF repo:
 
 ```yaml
 tracks:
@@ -72,8 +74,8 @@ Edit the recipe to pin a different corpus size (`corpus_{small,medium,large}`), 
 
 If you want to train on something other than ContinuousBench, drop your own `train.jsonl` / `val.jsonl` / `valqa.jsonl` / `testqa.jsonl` into `data/<your_track>/` (bypassing `load_data.py`) and create a matching `configs/tracks/<your_track>.yaml`.
 
-Use `scripts/format_data.py` to normalize and split raw JSONL:
+Use `data/helper/clean_data.py` to normalize and split raw JSONL:
 
 ```bash
-python scripts/format_data.py --input raw.jsonl --output data/my_track/ --split --dedup
+python data/helper/clean_data.py --input raw.jsonl --output data/my_track/ --split --dedup
 ```
