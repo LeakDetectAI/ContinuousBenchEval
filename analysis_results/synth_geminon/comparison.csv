@@ -1,0 +1,4 @@
+config,documents,entity_coverage,fact_coverage,conditional_preservation_rate,mean_support_documents_per_fact,unique_document_rate,mean_document_words,vocabulary_size,terminal_punctuation_rate,uppercase_start_rate,adjacent_repeated_word_rate,acceptable_sentence_rate
+lora_dpft_eps10_1bpt_temp1.0_180108,180108,0.989583,0.489423,0.031519,4.675,1.0,75.992,47524,0.999422,0.997466,0.003401,0.9222
+lora_dpft_eps100_1bpt_temp1.0_180108,180108,0.995833,0.631571,0.081265,12.546,1.0,75.987,41809,0.999461,0.997426,0.002782,0.9238
+lora_ft_epsinf_1bpt_temp1.0_181108,180108,1.0,1.0,0.563472,93.732,0.999972,76.946,16627,0.999661,0.997374,0.000477,0.938

@@ -78,3 +78,42 @@ Use `data/helper/clean_data.py` to normalize and split raw JSONL:
 ```bash
 python data/helper/clean_data.py --input raw.jsonl --output data/my_track/ --split --dedup
 ```
+
+## Diagnosing Geminon synthetic data
+
+`scripts/analyze_synth_geminon.py` compares a Synth-Geminon generation with
+the public Geminon ground-truth index. It reports entity persistence, factual
+coverage, relation-distortion candidates, support redundancy/diversity, output
+length, vocabulary size, and exact duplication. Remote JSONL is streamed and
+the analysis itself uses only the Python standard library.
+
+```bash
+# DP LoRA, epsilon=100 (the default)
+python scripts/analyze_synth_geminon.py
+
+# Compare private and non-private generations
+python scripts/analyze_synth_geminon.py \
+  --config lora_dpft_eps100_1bpt_temp1.0_180108 \
+  --config lora_ft_epsinf_1bpt_temp1.0_181108
+
+# Quick smoke test, or analyze a downloaded file
+python scripts/analyze_synth_geminon.py --limit 1000
+python scripts/analyze_synth_geminon.py --input /path/to/data.jsonl
+```
+
+For model-based grammatical acceptability, add a two-class CoLA checkpoint.
+The script uses a deterministic reservoir sample because scoring all sentences
+is expensive. It also reports transparent punctuation, capitalization,
+repetition, and delimiter diagnostics over the complete corpus.
+
+```bash
+python scripts/analyze_synth_geminon.py \
+  --config lora_dpft_eps100_1bpt_temp1.0_180108 \
+  --config lora_ft_epsinf_1bpt_temp1.0_181108 \
+  --grammar-model textattack/roberta-base-CoLA \
+  --grammar-sample-size 5000
+```
+
+Reports are written to `analysis_results/synth_geminon/`: one JSON summary and
+one fact-level CSV per configuration, plus `comparison.csv`. Set `HF_TOKEN` if
+Hugging Face requires authentication.

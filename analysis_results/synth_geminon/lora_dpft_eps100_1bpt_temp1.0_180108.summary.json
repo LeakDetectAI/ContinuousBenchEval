@@ -1,0 +1,171 @@
+{
+  "source": "https://huggingface.co/datasets/ContinuousBench/Synth-Geminon/resolve/main/lora_dpft_eps100_1bpt_temp1.0_180108/data.jsonl",
+  "documents": 180108,
+  "entities_total": 480,
+  "entities_observed": 478,
+  "entity_coverage": 0.995833,
+  "facts_total": 6240,
+  "facts_covered": 3941,
+  "fact_coverage": 0.631571,
+  "fact_support_documents": 78286,
+  "fact_cue_documents": 963345,
+  "conditional_preservation_rate": 0.081265,
+  "mean_support_documents_per_fact": 12.546,
+  "documents_with_exact_duplicate": 0,
+  "unique_document_rate": 1.0,
+  "word_tokens": 13685845,
+  "vocabulary_size": 41809,
+  "type_token_ratio": 0.003055,
+  "document_words": {
+    "mean": 75.987,
+    "median": 76.0,
+    "p10": 56.0,
+    "p90": 94.0,
+    "p25": 66.0,
+    "p75": 86.0,
+    "p99": 110.0
+  },
+  "document_characters": {
+    "mean": 445.286,
+    "median": 453.0,
+    "p10": 314.0,
+    "p90": 557.0
+  },
+  "structural_well_formedness": {
+    "sentences": 784684,
+    "terminal_punctuation_rate": 0.999461,
+    "uppercase_start_rate": 0.997426,
+    "adjacent_repeated_word_rate": 0.002782,
+    "unbalanced_delimiter_document_rate": 0.000283,
+    "note": "These are transparent surface diagnostics, not a grammaticality judgment."
+  },
+  "by_attribute": {
+    "classification": {
+      "facts": 480,
+      "facts_covered": 469,
+      "fact_coverage": 0.977083,
+      "cue_documents": 96906,
+      "support_documents": 27845,
+      "conditional_preservation_rate": 0.28734,
+      "mean_support_documents_per_fact": 58.01
+    },
+    "types": {
+      "facts": 480,
+      "facts_covered": 472,
+      "fact_coverage": 0.983333,
+      "cue_documents": 87665,
+      "support_documents": 37636,
+      "conditional_preservation_rate": 0.429316,
+      "mean_support_documents_per_fact": 78.408
+    },
+    "ability": {
+      "facts": 480,
+      "facts_covered": 255,
+      "fact_coverage": 0.53125,
+      "cue_documents": 50500,
+      "support_documents": 1547,
+      "conditional_preservation_rate": 0.030634,
+      "mean_support_documents_per_fact": 3.223
+    },
+    "hp": {
+      "facts": 480,
+      "facts_covered": 300,
+      "fact_coverage": 0.625,
+      "cue_documents": 67577,
+      "support_documents": 581,
+      "conditional_preservation_rate": 0.008598,
+      "mean_support_documents_per_fact": 1.21
+    },
+    "attack": {
+      "facts": 480,
+      "facts_covered": 334,
+      "fact_coverage": 0.695833,
+      "cue_documents": 80679,
+      "support_documents": 762,
+      "conditional_preservation_rate": 0.009445,
+      "mean_support_documents_per_fact": 1.587
+    },
+    "defense": {
+      "facts": 480,
+      "facts_covered": 319,
+      "fact_coverage": 0.664583,
+      "cue_documents": 71421,
+      "support_documents": 725,
+      "conditional_preservation_rate": 0.010151,
+      "mean_support_documents_per_fact": 1.51
+    },
+    "special attack": {
+      "facts": 480,
+      "facts_covered": 274,
+      "fact_coverage": 0.570833,
+      "cue_documents": 54828,
+      "support_documents": 525,
+      "conditional_preservation_rate": 0.009575,
+      "mean_support_documents_per_fact": 1.094
+    },
+    "special defense": {
+      "facts": 480,
+      "facts_covered": 276,
+      "fact_coverage": 0.575,
+      "cue_documents": 50880,
+      "support_documents": 555,
+      "conditional_preservation_rate": 0.010908,
+      "mean_support_documents_per_fact": 1.156
+    },
+    "speed": {
+      "facts": 480,
+      "facts_covered": 305,
+      "fact_coverage": 0.635417,
+      "cue_documents": 87205,
+      "support_documents": 663,
+      "conditional_preservation_rate": 0.007603,
+      "mean_support_documents_per_fact": 1.381
+    },
+    "base_stat_total": {
+      "facts": 480,
+      "facts_covered": 130,
+      "fact_coverage": 0.270833,
+      "cue_documents": 60358,
+      "support_documents": 163,
+      "conditional_preservation_rate": 0.002701,
+      "mean_support_documents_per_fact": 0.34
+    },
+    "weight": {
+      "facts": 480,
+      "facts_covered": 63,
+      "fact_coverage": 0.13125,
+      "cue_documents": 62391,
+      "support_documents": 77,
+      "conditional_preservation_rate": 0.001234,
+      "mean_support_documents_per_fact": 0.16
+    },
+    "height": {
+      "facts": 480,
+      "facts_covered": 401,
+      "fact_coverage": 0.835417,
+      "cue_documents": 55343,
+      "support_documents": 2418,
+      "conditional_preservation_rate": 0.043691,
+      "mean_support_documents_per_fact": 5.037
+    },
+    "move": {
+      "facts": 480,
+      "facts_covered": 343,
+      "fact_coverage": 0.714583,
+      "cue_documents": 137592,
+      "support_documents": 4789,
+      "conditional_preservation_rate": 0.034806,
+      "mean_support_documents_per_fact": 9.977
+    }
+  },
+  "method_note": "A preserved support requires an attributed entity, an attribute-specific cue, and every gold value in one sentence. A distortion candidate has the entity and cue but lacks the gold value; it is a diagnostic heuristic, not verified falsehood.",
+  "grammatical_acceptability": {
+    "model": "textattack/roberta-base-CoLA",
+    "sample_sentences": 5000,
+    "acceptable_sentence_rate": 0.9238,
+    "mean_acceptability_probability": 0.817274,
+    "sampling_seed": 13,
+    "note": "CoLA-style acceptability is a model-based proxy, not human annotation; domain-specific Geminon names and informal prose may affect calibration."
+  },
+  "config": "lora_dpft_eps100_1bpt_temp1.0_180108"
+}
